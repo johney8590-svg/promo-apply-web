@@ -150,6 +150,7 @@
   <button data-tab="apply" class="active">文宣申請</button>
   <button data-tab="list">案件清單</button>
   <button data-tab="dashboard">儀表板</button>
+  <button data-tab="line">LINE 通知設定</button>
 </nav>
 
 <main>
@@ -241,6 +242,28 @@
       <div class="chart-box"><h3>處理狀態分布</h3><div class="chart-canvas"><canvas id="chStatus"></canvas></div></div>
     </div>
   </section>
+
+  <!-- ===== LINE ===== -->
+  <section class="view" id="view-line">
+    <div class="card">
+      <h2>LINE 通知設定</h2>
+      <p class="hint">門市送出申請時，系統會由雲端後端推播一則 LINE 通知給總部。填好下面設定、按「儲存設定」即可；可先用「發送測試訊息」確認。</p>
+      <div class="pill-note">設定值存在雲端後端（全門市共用），任何門市送出申請都會通知。瀏覽器無法直接呼叫 LINE，一律由後端代發。</div>
+      <div class="grid">
+        <div class="full"><label>Channel access token（長期）<span style="font-weight:400;color:var(--muted)">　← 一長串英數字，非 32 碼的 Channel secret</span></label><input type="text" id="line_token" placeholder="LINE Developers → Messaging API → Channel access token (long-lived)"></div>
+        <div class="full"><label>推播目標 ID（userId 或 groupId，可多個用逗號分隔）<span style="font-weight:400;color:var(--muted)">　← 留空＝廣播給所有加官方帳號好友的人</span></label><input type="text" id="line_to" placeholder="例：Uxxxx, Cxxxx（留空則廣播）"></div>
+        <div class="full"><label>「連結」要導向的網址（{link} 代入值）</label><input type="text" id="line_link" placeholder="案件清單網址"></div>
+        <div class="full"><label>通知內容範本</label>
+          <textarea id="line_tpl" style="min-height:200px;font-family:inherit"></textarea>
+          <div class="pill-note" style="margin-top:8px">可用代入欄位：<code>{caseNo}</code> 案號 · <code>{store}</code> 門市 · <code>{region}</code> 區域 · <code>{applyDate}</code> 申請日期 · <code>{dept}</code> 部門 · <code>{supervisor}</code> 督導 · <code>{phone}</code> 電話 · <code>{items}</code> 申請品項摘要 · <code>{amount}</code> 預估金額 · <code>{link}</code> 連結。</div>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn" id="saveLine" type="button">儲存設定</button>
+        <button class="btn" style="background:#06c755" id="testLine" type="button">發送測試訊息</button>
+      </div>
+    </div>
+  </section>
 </main>
 
 <div class="modal-bg" id="modalBg"><div class="modal" id="modalBox"></div></div>
@@ -276,7 +299,17 @@ const OPTION_OPTS=["自費選購","總公司贈送"];
 const FORMAT_OPTS=["印刷稿","電子稿","給檔"];
 const DELIVERY_OPTS=["宅配","親送","給檔"];
 const STATUS=["待處理","設計中","印刷中","已出貨","已完成"];
-const LS_KEY="promo_apply_cases_v1";
+const LS_KEY="promo_apply_cases_v1", LS_LINE="promo_apply_line_v1";
+const PUBLIC_SITE="https://johney8590-svg.github.io/promo-apply-web/";
+const DEFAULT_LINE_TPL=
+  "【門市文宣申請通知】\n"+
+  "案號：{caseNo}\n"+
+  "門市：{store}（{region}）\n"+
+  "申請日期：{applyDate}\n"+
+  "督導：{supervisor}\n"+
+  "申請品項：\n{items}\n"+
+  "預估金額：{amount}\n"+
+  "連結：{link}";
 
 /* ====== 後端 API（雲端）設定 ======
    兩者留空 => 維持純本機模式（localStorage）。 */
@@ -314,6 +347,8 @@ async function loadCatalog(){
 
 function load(){try{return JSON.parse(localStorage.getItem(LS_KEY))||[]}catch(e){return[]}}
 function save(){try{localStorage.setItem(LS_KEY,JSON.stringify(cases));return true}catch(e){return false}}
+function getLineCfg(){try{return JSON.parse(localStorage.getItem(LS_LINE))||{}}catch(e){return{}}}
+function setLineCfg(o){try{localStorage.setItem(LS_LINE,JSON.stringify(o))}catch(e){}}
 function esc(s){return String(s==null?"":s).replace(/</g,"&lt;").replace(/>/g,"&gt;")}
 function today(){return new Date().toISOString().slice(0,10)}
 function fillSelect(el,arr,ph){el.innerHTML="<option value=''>"+(ph||"— 請選擇 —")+"</option>"+arr.map(s=>`<option>${esc(s)}</option>`).join("")}
@@ -505,7 +540,7 @@ function openCase(idx){
     ${posHtml}
     <div class="sec-title"><span class="dot"></span>處理進度（管理）</div>
     ${adminFields}
-    ${role==="admin"?`<div class="btn-row"><button class="btn" onclick="saveCase(${idx})">儲存處理結果</button></div>`
+    ${role==="admin"?`<div class="btn-row"><button class="btn" onclick="saveCase(${idx})">儲存處理結果</button><button class="btn danger" onclick="delCase(${idx})">刪除案件</button></div>`
       :`<p class="hint" style="margin-top:10px">切換為「管理（總部）」角色才能更新處理進度。</p>`}`);
 }
 async function saveCase(idx){
@@ -520,6 +555,15 @@ async function saveCase(idx){
   }
   if(!save()){toast("⚠ 儲存失敗：本機空間已滿");return;}
   refreshAll();closeModal();toast("已更新　"+c.caseNo);
+}
+async function delCase(idx){
+  const c=cases[idx];
+  if(!confirm("確定刪除案件 "+c.caseNo+"？此動作無法復原。"))return;
+  if(API_URL){
+    try{ await api("delete",{caseNo:c.caseNo}); }
+    catch(e){ toast("⚠ 雲端刪除失敗："+e.message); return; }
+  }
+  cases.splice(idx,1);save();refreshAll();closeModal();toast("已刪除　"+c.caseNo);
 }
 
 /* ====== 儀表板 ====== */
@@ -575,9 +619,40 @@ exportBtn.addEventListener("click",()=>{
   a.download="文宣申請_"+today()+".csv";a.click();
 });
 
+/* ====== LINE 設定 ====== */
+(function(){const c=getLineCfg();
+  line_token.value=c.token||"";line_to.value=c.to||"";
+  line_link.value=c.link||PUBLIC_SITE;
+  line_tpl.value=(c.template!==undefined&&c.template!=="")?c.template:DEFAULT_LINE_TPL;
+})();
+saveLine.addEventListener("click",async ()=>{
+  const cfg={token:line_token.value.trim(),to:line_to.value.trim(),link:line_link.value.trim(),template:line_tpl.value};
+  setLineCfg(cfg);
+  if(API_URL){
+    saveLine.disabled=true;
+    try{ await api("saveLine",{line:cfg}); toast("LINE 設定已儲存（雲端，全門市共用）"); }
+    catch(e){ toast("⚠ 雲端儲存失敗："+e.message); }
+    finally{ saveLine.disabled=false; }
+  }else{ toast("LINE 設定已儲存（本機）"); }
+});
+testLine.addEventListener("click",async ()=>{
+  const cfg={token:line_token.value.trim(),to:line_to.value.trim(),link:line_link.value.trim(),template:line_tpl.value};
+  setLineCfg(cfg);
+  if(!cfg.token){toast("請先填寫 Channel access token");return;}
+  if(API_URL){
+    testLine.disabled=true;
+    try{
+      const r=await api("pushTest",{line:cfg});
+      if(r.code===200) toast("✅ 已發送測試廣播，請看 LINE（需先把官方帳號加為好友）");
+      else toast("⚠ 測試失敗（HTTP "+r.code+"）："+String(r.detail||"").slice(0,80));
+    }catch(e){toast("⚠ 測試失敗："+e.message);}
+    finally{testLine.disabled=false;}
+  }else{ toast("尚未設定雲端後端，無法發送"); }
+});
+
 /* ====== 角色 / 分頁 ====== */
 function applyRoleUI(){
-  const adminOnly=["dashboard"];
+  const adminOnly=["dashboard","line"];
   adminOnly.forEach(t=>{document.querySelector(`[data-tab="${t}"]`).style.display=role==="admin"?"":"none";});
   document.getElementById("demoBanner");
   roleHintList.textContent=role==="admin"
