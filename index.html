@@ -150,6 +150,7 @@
   <button data-tab="apply" class="active">文宣申請</button>
   <button data-tab="list">案件清單</button>
   <button data-tab="dashboard">儀表板</button>
+  <button data-tab="fields">申請欄位設定</button>
   <button data-tab="line">LINE 通知設定</button>
 </nav>
 
@@ -176,22 +177,6 @@
         <button class="btn sec sm" id="addItemBtn" type="button">＋ 新增文宣品項</button>
       </div>
       <div class="total-bar" id="totalBar"></div>
-
-      <div class="sec-title open collapse-head" id="posHead" style="margin-top:22px">
-        <span class="chev">▶</span><span class="dot"></span>POS 按鍵設定<span style="font-size:11px;font-weight:400;color:var(--muted)">（總部營運／資訊部填寫，選填）</span>
-      </div>
-      <div id="posBody">
-        <div class="grid">
-          <div><label>名稱</label><input type="text" id="p_name" placeholder="按鍵顯示名稱"></div>
-          <div><label>品項</label><input type="text" id="p_item" placeholder="對應品項"></div>
-          <div><label>活動時間</label><input type="text" id="p_time" placeholder="例：2026/06/01-06/30"></div>
-          <div><label>票券使用期間</label><input type="text" id="p_ticket" placeholder="若為票券／兌換券"></div>
-          <div><label>POS 類別</label><input type="text" id="p_type" placeholder="例：折扣 / 加購 / 贈品"></div>
-          <div><label>線上點餐</label>
-            <select id="p_online"><option value="">— 請選擇 —</option><option>是</option><option>否</option></select></div>
-          <div class="full"><label>備註</label><textarea id="p_note" placeholder="其他補充"></textarea></div>
-        </div>
-      </div>
 
       <div class="btn-row" style="margin-top:18px">
         <button class="btn" id="submitBtn" type="button">送出申請</button>
@@ -240,6 +225,29 @@
       <div class="chart-box"><h3>熱門文宣品項（Top 10）</h3><div class="chart-canvas"><canvas id="chItem"></canvas></div></div>
       <div class="chart-box"><h3>每月申請趨勢</h3><div class="chart-canvas"><canvas id="chMonth"></canvas></div></div>
       <div class="chart-box"><h3>處理狀態分布</h3><div class="chart-canvas"><canvas id="chStatus"></canvas></div></div>
+    </div>
+  </section>
+
+  <!-- ===== 申請欄位設定 ===== -->
+  <section class="view" id="view-fields">
+    <div class="card">
+      <h2>申請欄位設定</h2>
+      <p class="hint">勾選每個文宣品項在「文宣申請」表單上要讓門市夥伴看到／填寫的欄位；未勾選者門市端不顯示。「文宣品項」與「申請文宣內容」一律顯示；數量未勾選時會自動帶入該品項的基準數量。</p>
+      <div class="btn-row" style="margin-top:0">
+        <button class="btn sec sm" id="fcAllOn" type="button">全部開啟</button>
+        <button class="btn ghost sm" id="fcAllOff" type="button">全部關閉</button>
+      </div>
+      <div class="scrollwrap" style="margin-top:12px">
+        <table id="fcTable">
+          <thead><tr>
+            <th>文宣品項</th><th style="text-align:center">活動期間</th><th style="text-align:center">設計/行銷方案</th>
+            <th style="text-align:center">數量</th><th style="text-align:center">選配方式</th>
+            <th style="text-align:center">檔案格式</th><th style="text-align:center">運送方式</th>
+          </tr></thead>
+          <tbody id="fcBody"></tbody>
+        </table>
+      </div>
+      <div class="btn-row"><button class="btn" id="saveFields" type="button">儲存設定</button></div>
     </div>
   </section>
 
@@ -299,7 +307,9 @@ const OPTION_OPTS=["自費選購","總公司贈送"];
 const FORMAT_OPTS=["印刷稿","電子稿","給檔"];
 const DELIVERY_OPTS=["宅配","親送","給檔"];
 const STATUS=["待處理","設計中","印刷中","已出貨","已完成"];
-const LS_KEY="promo_apply_cases_v1", LS_LINE="promo_apply_line_v1";
+/* 可由「申請欄位設定」開關的文宣品項欄位（品項、申請文宣內容一律顯示）*/
+const FIELD_DEFS=[["period","活動期間"],["plan","設計/行銷方案"],["qty","數量"],["option","選配方式"],["format","檔案格式"],["delivery","運送方式"]];
+const LS_KEY="promo_apply_cases_v1", LS_LINE="promo_apply_line_v1", LS_FIELDS="promo_apply_fields_v1";
 const PUBLIC_SITE="https://johney8590-svg.github.io/promo-apply-web/";
 const DEFAULT_LINE_TPL=
   "【門市文宣申請通知】\n"+
@@ -323,6 +333,15 @@ let adminPass="";
 let cases=load();
 let itemRows=[];   // 申請表的品項列暫存
 let charts={};
+let fieldCfg=loadFieldCfgLocal();   // 申請欄位設定（依品項）
+
+function loadFieldCfgLocal(){try{return JSON.parse(localStorage.getItem(LS_FIELDS))||{}}catch(e){return{}}}
+function saveFieldCfgLocal(){try{localStorage.setItem(LS_FIELDS,JSON.stringify(fieldCfg))}catch(e){}}
+/* 取某品項的欄位顯示設定；未設定者預設全部顯示 */
+function itemFieldCfg(name){
+  const d={period:true,plan:true,qty:true,option:true,format:true,delivery:true};
+  const c=fieldCfg[name];return c?Object.assign({},d,c):d;
+}
 
 /* ====== 雲端 API ====== */
 async function api(action,payload){
@@ -343,6 +362,13 @@ async function loadCatalog(){
     const list=await api("catalog");
     if(Array.isArray(list)&&list.length){ CATALOG=list; renderItems(); }
   }catch(e){ console.warn("品項主檔載入失敗，沿用內建清單",e); }
+}
+async function loadFieldConfig(){
+  if(!API_URL)return;
+  try{
+    const fc=await api("fieldConfig");
+    if(fc&&typeof fc==="object"){ fieldCfg=fc; saveFieldCfgLocal(); renderItems(); }
+  }catch(e){ console.warn("申請欄位設定載入失敗",e); }
 }
 
 function load(){try{return JSON.parse(localStorage.getItem(LS_KEY))||[]}catch(e){return[]}}
@@ -371,23 +397,28 @@ function renderItems(){
   itemWrap.innerHTML=itemRows.map((r,i)=>{
     const ci=CATALOG.findIndex(c=>c.name===r.item);
     const c=ci>=0?CATALOG[ci]:null;
+    const cfg=itemFieldCfg(r.item);
     const quote=c?`<div class="quote-line">設計部基準報價：<b>${fmt$(c.price)}</b>（基準量 ${esc(c.baseQty||"—")}）　運費：${esc(c.ship)}　重新設計：${esc(c.design)}　印刷：${esc(c.print)}</div>`:"";
+    const F={
+      period:`<div><label>活動期間</label><input value="${esc(r.period)}" oninput="setRow(${i},'period',this.value)" placeholder="例：2026/06/01-06/30"></div>`,
+      plan:`<div><label>設計／行銷方案</label>
+          <select onchange="setRow(${i},'plan',this.value)">${["<option value=''>— 請選擇 —</option>"].concat(PLAN_OPTS.map(o=>`<option ${r.plan===o?"selected":""}>${esc(o)}</option>`)).join("")}</select></div>`,
+      qty:`<div><label>數量 <span class="req">*</span></label><input value="${esc(r.qty)}" oninput="setRow(${i},'qty',this.value)" placeholder="例：2000張 / 1張 / 1組"></div>`,
+      option:`<div><label>選配方式</label>
+          <select onchange="setRow(${i},'option',this.value)">${OPTION_OPTS.map(o=>`<option ${r.option===o?"selected":""}>${esc(o)}</option>`).join("")}</select></div>`,
+      format:`<div><label>檔案格式</label>
+          <select onchange="setRow(${i},'format',this.value)">${FORMAT_OPTS.map(o=>`<option ${r.format===o?"selected":""}>${esc(o)}</option>`).join("")}</select></div>`,
+      delivery:`<div><label>運送方式</label>
+          <select onchange="setRow(${i},'delivery',this.value)">${DELIVERY_OPTS.map(o=>`<option ${r.delivery===o?"selected":""}>${esc(o)}</option>`).join("")}</select></div>`
+    };
+    const optionalHtml=FIELD_DEFS.map(([k])=>cfg[k]?F[k]:"").join("");
     return `<div class="item-card">
       <span class="idx">品項 ${i+1}</span>
       ${itemRows.length>1?`<button class="btn danger sm rm" type="button" onclick="rmItem(${i})">移除</button>`:""}
       <div class="grid">
         <div class="full"><label>文宣品項 <span class="req">*</span></label>
           <select onchange="onItem(${i},this.value)">${catalogOptions(ci)}</select></div>
-        <div><label>活動期間</label><input value="${esc(r.period)}" oninput="setRow(${i},'period',this.value)" placeholder="例：2026/06/01-06/30"></div>
-        <div><label>設計／行銷方案</label>
-          <select onchange="setRow(${i},'plan',this.value)">${["<option value=''>— 請選擇 —</option>"].concat(PLAN_OPTS.map(o=>`<option ${r.plan===o?"selected":""}>${esc(o)}</option>`)).join("")}</select></div>
-        <div><label>數量 <span class="req">*</span></label><input value="${esc(r.qty)}" oninput="setRow(${i},'qty',this.value)" placeholder="例：2000張 / 1張 / 1組"></div>
-        <div><label>選配方式</label>
-          <select onchange="setRow(${i},'option',this.value)">${OPTION_OPTS.map(o=>`<option ${r.option===o?"selected":""}>${esc(o)}</option>`).join("")}</select></div>
-        <div><label>檔案格式</label>
-          <select onchange="setRow(${i},'format',this.value)">${FORMAT_OPTS.map(o=>`<option ${r.format===o?"selected":""}>${esc(o)}</option>`).join("")}</select></div>
-        <div><label>運送方式</label>
-          <select onchange="setRow(${i},'delivery',this.value)">${DELIVERY_OPTS.map(o=>`<option ${r.delivery===o?"selected":""}>${esc(o)}</option>`).join("")}</select></div>
+        ${optionalHtml}
         <div class="full"><label>申請文宣內容 <span class="req">*</span></label>
           <textarea oninput="setRow(${i},'content',this.value)" placeholder="文宣上要呈現的文案／訴求，例：外送門檻、活動辦法、菜單內容…">${esc(r.content)}</textarea></div>
       </div>
@@ -395,6 +426,15 @@ function renderItems(){
     </div>`;
   }).join("");
   renderTotal();
+}
+/* ====== 申請欄位設定（管理）====== */
+function renderFieldTable(){
+  fcBody.innerHTML=CATALOG.map(c=>{
+    const cfg=itemFieldCfg(c.name);
+    return `<tr><td style="max-width:260px">${esc(c.name)}</td>`+
+      FIELD_DEFS.map(([k])=>`<td style="text-align:center"><input type="checkbox" data-item="${esc(c.name).replace(/"/g,'&quot;')}" data-key="${k}" ${cfg[k]?"checked":""} style="width:auto;height:18px"></td>`).join("")+
+      `</tr>`;
+  }).join("");
 }
 function onItem(i,v){
   const c=CATALOG[+v];
@@ -412,9 +452,6 @@ function renderTotal(){
 addItemBtn.addEventListener("click",()=>addItem());
 addItem();
 
-/* POS 區塊收合 */
-posHead.addEventListener("click",()=>{posHead.classList.toggle("open");posBody.style.display=posHead.classList.contains("open")?"":"none";});
-
 /* ====== 送出 ====== */
 function pad3(n){return String(n).padStart(3,"0")}
 function genCaseNo(store,dstr){
@@ -426,12 +463,17 @@ submitBtn.addEventListener("click",async ()=>{
   const items=itemRows.filter(r=>r.item);
   if(!f_region.value||!f_store.value||!f_date.value){toast("請填寫區域、門市、申請日期");return;}
   if(!items.length){toast("請至少新增一個文宣品項");return;}
-  for(const r of items){ if(!r.qty||!r.content){toast("每個品項需填寫數量與申請文宣內容");return;} }
+  for(const r of items){
+    const rcfg=itemFieldCfg(r.item);
+    if(!r.content){toast("每個品項需填寫申請文宣內容");return;}
+    if(rcfg.qty&&!r.qty){toast("每個品項需填寫數量");return;}
+    if(!rcfg.qty&&!r.qty){const cat=CATALOG.find(c=>c.name===r.item);r.qty=cat?cat.baseQty:"";}
+  }
   const c={
     caseNo:genCaseNo(f_store.value,f_date.value),applyDate:f_date.value,dept:f_dept.value,region:f_region.value,store:f_store.value,
     supervisor:f_super.value,phone:f_phone.value,
     items:items.map(r=>({...r,unitPrice:rowAmount(r)})),
-    pos:{name:p_name.value,item:p_item.value,time:p_time.value,ticket:p_ticket.value,type:p_type.value,online:p_online.value,note:p_note.value},
+    pos:{name:"",item:"",time:"",ticket:"",type:"",online:"",note:""},
     amount:items.reduce((a,r)=>a+rowAmount(r),0),
     status:0,quote:"",actual:"",adminNote:"",createdAt:new Date().toISOString()
   };
@@ -457,7 +499,6 @@ submitBtn.addEventListener("click",async ()=>{
 resetBtn.addEventListener("click",resetForm);
 function resetForm(){
   f_dept.value="";f_region.value="";f_store.value="";f_super.value="";f_phone.value="";f_date.value=today();
-  p_name.value="";p_item.value="";p_time.value="";p_ticket.value="";p_type.value="";p_online.value="";p_note.value="";
   itemRows=[blankRow()];renderItems();
 }
 
@@ -506,16 +547,16 @@ function openCase(idx){
       <td>${esc(it.period||"—")}</td><td style="max-width:220px;white-space:pre-wrap">${esc(it.content||"—")}</td>
     </tr>`).join("")}</tbody></table></div>`;
   const pos=c.pos||{};
-  const posHtml=(pos.name||pos.item||pos.time||pos.type||pos.note)?
-    `<div class="kv">
-       <div class="k">按鍵名稱</div><div>${esc(pos.name||"—")}</div>
-       <div class="k">品項</div><div>${esc(pos.item||"—")}</div>
-       <div class="k">活動時間</div><div>${esc(pos.time||"—")}</div>
-       <div class="k">票券期間</div><div>${esc(pos.ticket||"—")}</div>
-       <div class="k">POS類別</div><div>${esc(pos.type||"—")}</div>
-       <div class="k">線上點餐</div><div>${esc(pos.online||"—")}</div>
-       <div class="k">備註</div><div style="white-space:pre-wrap">${esc(pos.note||"—")}</div>
-     </div>`:`<p style="color:var(--muted);font-size:13px;margin-bottom:14px">（尚未填寫 POS 按鍵設定）</p>`;
+  const posSection=role==="admin"?`
+    <div class="grid">
+      <div><label>按鍵名稱</label><input id="m_pos_name" value="${esc(pos.name||'')}"></div>
+      <div><label>品項</label><input id="m_pos_item" value="${esc(pos.item||'')}"></div>
+      <div><label>活動時間</label><input id="m_pos_time" value="${esc(pos.time||'')}"></div>
+      <div><label>票券期間</label><input id="m_pos_ticket" value="${esc(pos.ticket||'')}"></div>
+      <div><label>POS類別</label><input id="m_pos_type" value="${esc(pos.type||'')}"></div>
+      <div><label>線上點餐</label><select id="m_pos_online"><option value="">—</option><option ${pos.online==='是'?'selected':''}>是</option><option ${pos.online==='否'?'selected':''}>否</option></select></div>
+      <div class="full"><label>備註</label><textarea id="m_pos_note">${esc(pos.note||'')}</textarea></div>
+    </div>`:"";
   const adminFields=`
     <div class="grid">
       <div><label>處理進度</label>
@@ -536,8 +577,7 @@ function openCase(idx){
     </div>
     <div class="sec-title"><span class="dot"></span>文宣輸出物（${c.items.length} 項）</div>
     ${itemsTbl}
-    <div class="sec-title"><span class="dot"></span>POS 按鍵設定</div>
-    ${posHtml}
+    ${role==="admin"?`<div class="sec-title"><span class="dot"></span>POS 按鍵設定（內部）</div>${posSection}`:''}
     <div class="sec-title"><span class="dot"></span>處理進度（管理）</div>
     ${adminFields}
     ${role==="admin"?`<div class="btn-row"><button class="btn" onclick="saveCase(${idx})">儲存處理結果</button><button class="btn danger" onclick="delCase(${idx})">刪除案件</button></div>`
@@ -549,8 +589,13 @@ async function saveCase(idx){
   c.quote=document.getElementById("m_quote").value;
   c.actual=document.getElementById("m_actual").value;
   c.adminNote=document.getElementById("m_note").value;
+  const gv=id=>document.getElementById(id)?.value||"";
+  if(role==="admin"){
+    c.pos={name:gv("m_pos_name"),item:gv("m_pos_item"),time:gv("m_pos_time"),
+           ticket:gv("m_pos_ticket"),type:gv("m_pos_type"),online:gv("m_pos_online"),note:gv("m_pos_note")};
+  }
   if(API_URL){
-    try{ await api("update",{caseNo:c.caseNo,status:c.status,quote:c.quote,actual:c.actual,adminNote:c.adminNote}); }
+    try{ await api("update",{caseNo:c.caseNo,status:c.status,quote:c.quote,actual:c.actual,adminNote:c.adminNote,pos:c.pos}); }
     catch(e){ console.warn("雲端更新失敗",e); toast("⚠ 雲端更新失敗，已暫存本機"); }
   }
   if(!save()){toast("⚠ 儲存失敗：本機空間已滿");return;}
@@ -650,9 +695,28 @@ testLine.addEventListener("click",async ()=>{
   }else{ toast("尚未設定雲端後端，無法發送"); }
 });
 
+/* ====== 申請欄位設定 事件 ====== */
+fcAllOn.addEventListener("click",()=>fcBody.querySelectorAll("input[type=checkbox]").forEach(cb=>cb.checked=true));
+fcAllOff.addEventListener("click",()=>fcBody.querySelectorAll("input[type=checkbox]").forEach(cb=>cb.checked=false));
+saveFields.addEventListener("click",async()=>{
+  const cfg={};
+  fcBody.querySelectorAll("input[type=checkbox]").forEach(cb=>{
+    const it=cb.dataset.item,k=cb.dataset.key;
+    if(!cfg[it])cfg[it]={};cfg[it][k]=cb.checked;
+  });
+  fieldCfg=cfg;saveFieldCfgLocal();
+  if(API_URL){
+    saveFields.disabled=true;
+    try{ await api("saveFieldConfig",{fieldConfig:cfg}); toast("申請欄位設定已儲存（雲端，全門市共用）"); }
+    catch(e){ toast("⚠ 儲存失敗："+e.message); }
+    finally{ saveFields.disabled=false; }
+  }else{ toast("申請欄位設定已儲存（本機）"); }
+  renderItems();
+});
+
 /* ====== 角色 / 分頁 ====== */
 function applyRoleUI(){
-  const adminOnly=["dashboard","line"];
+  const adminOnly=["dashboard","fields","line"];
   adminOnly.forEach(t=>{document.querySelector(`[data-tab="${t}"]`).style.display=role==="admin"?"":"none";});
   document.getElementById("demoBanner");
   roleHintList.textContent=role==="admin"
@@ -693,6 +757,7 @@ nav.querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{
   document.getElementById("view-"+b.dataset.tab).classList.add("active");
   if(b.dataset.tab==="dashboard")renderDash();
   if(b.dataset.tab==="list")renderList();
+  if(b.dataset.tab==="fields")renderFieldTable();
 }));
 
 /* ====== 工具 ====== */
@@ -750,6 +815,7 @@ if(!cases.length){
 applyRoleUI();
 renderList();
 loadCatalog();
+loadFieldConfig();
 </script>
 </body>
 </html>
