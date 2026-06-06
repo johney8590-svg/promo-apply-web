@@ -151,6 +151,7 @@
   <button data-tab="list">案件清單</button>
   <button data-tab="dashboard">儀表板</button>
   <button data-tab="fields">申請欄位設定</button>
+  <button data-tab="optmgr">品項/選項管理</button>
   <button data-tab="line">LINE 通知設定</button>
 </nav>
 
@@ -251,6 +252,32 @@
     </div>
   </section>
 
+  <!-- ===== 品項/選項管理 ===== -->
+  <section class="view" id="view-optmgr">
+    <div class="card">
+      <h2>文宣品項管理</h2>
+      <p class="hint">新增、刪除或修改文宣品項清單與各項的基準報價、時程資訊；儲存後全門市共用，申請表的下拉即時更新。</p>
+      <div class="scrollwrap" style="margin-top:12px">
+        <table id="catEditTable">
+          <thead><tr>
+            <th>品項名稱</th><th>基準數量</th><th>基準報價($)</th><th>運費</th><th>重新設計</th><th>印刷</th><th>預設格式</th><th></th>
+          </tr></thead>
+          <tbody id="catEditBody"></tbody>
+        </table>
+      </div>
+      <div class="btn-row" style="margin-top:10px">
+        <button class="btn sec sm" id="catAddBtn" type="button">＋ 新增品項</button>
+        <button class="btn" id="saveCatalogBtn" type="button">儲存品項清單</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>下拉選項管理</h2>
+      <p class="hint">設定「設計/行銷方案」、「選配方式」、「檔案格式」、「運送方式」的可選選項；點 × 刪除、填入後按「＋ 新增」，最後按「儲存選項設定」全門市共用。</p>
+      <div id="optEditBody"></div>
+      <div class="btn-row"><button class="btn" id="saveOptsBtn" type="button">儲存選項設定</button></div>
+    </div>
+  </section>
+
   <!-- ===== LINE ===== -->
   <section class="view" id="view-line">
     <div class="card">
@@ -302,10 +329,10 @@ let CATALOG=[
   {name:"A4營業公告或門店特殊公告",baseQty:"1張",price:90,ship:"貨到付款",design:"—",print:"—",format:"印刷稿"},
   {name:"其他(請設計報價)",baseQty:"",price:0,ship:"—",design:"—",print:"—",format:"印刷稿"}
 ];
-const PLAN_OPTS=["方案A 買一送一(品項先選為買)","方案B 第二杯半價(品項後選為半價)","季節新品A","季節新品B","開學日A","開學日B","其他"];
-const OPTION_OPTS=["自費選購","總公司贈送"];
-const FORMAT_OPTS=["印刷稿","電子稿","給檔"];
-const DELIVERY_OPTS=["宅配","親送","給檔"];
+let PLAN_OPTS=["方案A 買一送一(品項先選為買)","方案B 第二杯半價(品項後選為半價)","季節新品A","季節新品B","開學日A","開學日B","其他"];
+let OPTION_OPTS=["自費選購","總公司贈送"];
+let FORMAT_OPTS=["印刷稿","電子稿","給檔"];
+let DELIVERY_OPTS=["宅配","親送","給檔"];
 const STATUS=["待處理","設計中","印刷中","已出貨","已完成"];
 /* 可由「申請欄位設定」開關的文宣品項欄位（品項、申請文宣內容一律顯示）*/
 const FIELD_DEFS=[["period","活動期間"],["plan","設計/行銷方案"],["qty","數量"],["option","選配方式"],["format","檔案格式"],["delivery","運送方式"]];
@@ -369,6 +396,19 @@ async function loadFieldConfig(){
     const fc=await api("fieldConfig");
     if(fc&&typeof fc==="object"){ fieldCfg=fc; saveFieldCfgLocal(); renderItems(); }
   }catch(e){ console.warn("申請欄位設定載入失敗",e); }
+}
+async function loadOptions(){
+  if(!API_URL)return;
+  try{
+    const opts=await api("options");
+    if(opts&&typeof opts==="object"){
+      if(Array.isArray(opts.plan)    &&opts.plan.length)    PLAN_OPTS=opts.plan;
+      if(Array.isArray(opts.option)  &&opts.option.length)  OPTION_OPTS=opts.option;
+      if(Array.isArray(opts.format)  &&opts.format.length)  FORMAT_OPTS=opts.format;
+      if(Array.isArray(opts.delivery)&&opts.delivery.length)DELIVERY_OPTS=opts.delivery;
+      renderItems();
+    }
+  }catch(e){ console.warn("下拉選項載入失敗",e); }
 }
 
 function load(){try{return JSON.parse(localStorage.getItem(LS_KEY))||[]}catch(e){return[]}}
@@ -695,6 +735,100 @@ testLine.addEventListener("click",async ()=>{
   }else{ toast("尚未設定雲端後端，無法發送"); }
 });
 
+/* ====== 品項/選項管理 ====== */
+let catalogEdit=[];
+let optEdit={};
+const CE_FORMAT_OPTS=["印刷稿","電子稿","給檔"];
+
+function initOptEdit(){
+  optEdit={plan:[...PLAN_OPTS],option:[...OPTION_OPTS],format:[...FORMAT_OPTS],delivery:[...DELIVERY_OPTS]};
+}
+function catSyncFromDom(){
+  document.querySelectorAll(".ce-inp").forEach(el=>{
+    const i=+el.dataset.i,k=el.dataset.k;
+    if(i<catalogEdit.length) catalogEdit[i][k]=k==="price"?(+el.value||0):el.value;
+  });
+}
+function renderCatalogEditor(){
+  const tbody=document.getElementById("catEditBody");
+  if(!tbody)return;
+  tbody.innerHTML=catalogEdit.map((c,i)=>`<tr>
+    <td><input class="ce-inp" data-i="${i}" data-k="name" value="${esc(c.name)}" style="min-width:160px"></td>
+    <td><input class="ce-inp" data-i="${i}" data-k="baseQty" value="${esc(c.baseQty||"")}" style="width:78px"></td>
+    <td><input class="ce-inp" data-i="${i}" data-k="price" type="number" value="${c.price||0}" style="width:75px"></td>
+    <td><input class="ce-inp" data-i="${i}" data-k="ship" value="${esc(c.ship||"")}" style="width:85px"></td>
+    <td><input class="ce-inp" data-i="${i}" data-k="design" value="${esc(c.design||"")}" style="width:100px"></td>
+    <td><input class="ce-inp" data-i="${i}" data-k="print" value="${esc(c.print||"")}" style="width:95px"></td>
+    <td><select class="ce-inp" data-i="${i}" data-k="format" style="width:90px">${CE_FORMAT_OPTS.map(o=>`<option ${c.format===o?"selected":""}>${o}</option>`).join("")}</select></td>
+    <td><button class="btn danger sm" type="button" onclick="catRm(${i})">×</button></td>
+  </tr>`).join("");
+}
+function catRm(i){catSyncFromDom();catalogEdit.splice(i,1);renderCatalogEditor();}
+catAddBtn.addEventListener("click",()=>{
+  catSyncFromDom();
+  catalogEdit.push({name:"",baseQty:"",price:0,ship:"—",design:"",print:"",format:"印刷稿"});
+  renderCatalogEditor();
+});
+saveCatalogBtn.addEventListener("click",async()=>{
+  catSyncFromDom();
+  const list=catalogEdit.filter(c=>String(c.name||"").trim());
+  if(!list.length){toast("請至少保留一個品項");return;}
+  CATALOG=list.map(c=>({...c,price:+c.price||0}));
+  catalogEdit=CATALOG.map(c=>({...c}));
+  renderItems();renderCatalogEditor();
+  if(API_URL){
+    saveCatalogBtn.disabled=true;
+    try{await api("saveCatalog",{catalog:CATALOG});toast("品項清單已儲存（雲端）");}
+    catch(e){toast("⚠ 儲存失敗："+e.message);}
+    finally{saveCatalogBtn.disabled=false;}
+  }else{toast("品項清單已儲存（本機）");}
+});
+
+function renderOptionEditor(){
+  const body=document.getElementById("optEditBody");
+  if(!body)return;
+  const groups=[
+    {key:"plan",label:"設計／行銷方案"},
+    {key:"option",label:"選配方式"},
+    {key:"format",label:"檔案格式"},
+    {key:"delivery",label:"運送方式"}
+  ];
+  body.innerHTML=groups.map(g=>`
+    <div style="margin-bottom:20px">
+      <div class="sec-title" style="margin-bottom:8px"><span class="dot"></span>${g.label}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">
+        ${(optEdit[g.key]||[]).map((o,i)=>`<span style="background:#eef5f0;border:1px solid #b8d4c0;border-radius:20px;padding:4px 14px 4px 14px;font-size:13px;display:inline-flex;align-items:center;gap:6px">${esc(o)}<button type="button" onclick="optRm('${g.key}',${i})" style="background:none;border:none;cursor:pointer;color:#c0392b;font-size:15px;padding:0;line-height:1;font-weight:700">×</button></span>`).join("")}
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="optIn_${g.key}" placeholder="輸入新選項後按新增…" style="flex:1;padding:8px 11px;border:1px solid #cdd5d0;border-radius:7px;font-size:13px;font-family:inherit">
+        <button class="btn sec sm" type="button" onclick="optAdd('${g.key}')">＋ 新增</button>
+      </div>
+    </div>`).join("");
+}
+function optRm(key,i){optEdit[key].splice(i,1);renderOptionEditor();}
+function optAdd(key){
+  const inp=document.getElementById("optIn_"+key);
+  const v=(inp?inp.value:"").trim();
+  if(!v)return;
+  if(!optEdit[key])optEdit[key]=[];
+  optEdit[key].push(v);
+  if(inp)inp.value="";
+  renderOptionEditor();
+}
+saveOptsBtn.addEventListener("click",async()=>{
+  PLAN_OPTS=[...(optEdit.plan||[])];
+  OPTION_OPTS=[...(optEdit.option||[])];
+  FORMAT_OPTS=[...(optEdit.format||[])];
+  DELIVERY_OPTS=[...(optEdit.delivery||[])];
+  renderItems();
+  if(API_URL){
+    saveOptsBtn.disabled=true;
+    try{await api("saveOptions",{options:optEdit});toast("選項設定已儲存（雲端，全門市共用）");}
+    catch(e){toast("⚠ 儲存失敗："+e.message);}
+    finally{saveOptsBtn.disabled=false;}
+  }else{toast("選項設定已儲存（本機）");}
+});
+
 /* ====== 申請欄位設定 事件 ====== */
 fcAllOn.addEventListener("click",()=>fcBody.querySelectorAll("input[type=checkbox]").forEach(cb=>cb.checked=true));
 fcAllOff.addEventListener("click",()=>fcBody.querySelectorAll("input[type=checkbox]").forEach(cb=>cb.checked=false));
@@ -716,7 +850,7 @@ saveFields.addEventListener("click",async()=>{
 
 /* ====== 角色 / 分頁 ====== */
 function applyRoleUI(){
-  const adminOnly=["dashboard","fields","line"];
+  const adminOnly=["dashboard","fields","optmgr","line"];
   adminOnly.forEach(t=>{document.querySelector(`[data-tab="${t}"]`).style.display=role==="admin"?"":"none";});
   document.getElementById("demoBanner");
   roleHintList.textContent=role==="admin"
@@ -758,6 +892,7 @@ nav.querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{
   if(b.dataset.tab==="dashboard")renderDash();
   if(b.dataset.tab==="list")renderList();
   if(b.dataset.tab==="fields")renderFieldTable();
+  if(b.dataset.tab==="optmgr"){catalogEdit=CATALOG.map(c=>({...c}));initOptEdit();renderCatalogEditor();renderOptionEditor();}
 }));
 
 /* ====== 工具 ====== */
@@ -816,6 +951,7 @@ applyRoleUI();
 renderList();
 loadCatalog();
 loadFieldConfig();
+loadOptions();
 </script>
 </body>
 </html>
