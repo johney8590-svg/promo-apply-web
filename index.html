@@ -233,22 +233,19 @@
   <section class="view" id="view-fields">
     <div class="card">
       <h2>申請欄位設定</h2>
-      <p class="hint">勾選每個文宣品項在「文宣申請」表單上要讓門市夥伴看到／填寫的欄位；未勾選者門市端不顯示。「文宣品項」與「申請文宣內容」一律顯示；數量未勾選時會自動帶入該品項的基準數量。</p>
+      <p class="hint">點「設定」可個別設定每個品項顯示哪些欄位，以及各下拉欄位只允許哪些選項（如：選配方式只限「自費選購」）。「文宣品項」與「申請文宣內容」一律顯示。</p>
       <div class="btn-row" style="margin-top:0">
-        <button class="btn sec sm" id="fcAllOn" type="button">全部開啟</button>
-        <button class="btn ghost sm" id="fcAllOff" type="button">全部關閉</button>
+        <button class="btn sec sm" id="fcAllOn" type="button">全部重設（顯示所有欄位與選項）</button>
       </div>
       <div class="scrollwrap" style="margin-top:12px">
         <table id="fcTable">
           <thead><tr>
-            <th>文宣品項</th><th style="text-align:center">活動期間</th><th style="text-align:center">設計/行銷方案</th>
-            <th style="text-align:center">數量</th><th style="text-align:center">選配方式</th>
-            <th style="text-align:center">檔案格式</th><th style="text-align:center">運送方式</th>
+            <th>文宣品項</th><th>目前設定摘要</th><th style="width:64px"></th>
           </tr></thead>
           <tbody id="fcBody"></tbody>
         </table>
       </div>
-      <div class="btn-row"><button class="btn" id="saveFields" type="button">儲存設定</button></div>
+      <div class="btn-row"><button class="btn" id="saveFields" type="button">儲存全部設定（雲端）</button></div>
     </div>
   </section>
 
@@ -442,6 +439,8 @@ function catalogOptions(sel){
 function blankRow(){return {item:"",period:"",plan:"",content:"",option:"自費選購",qty:"",format:"印刷稿",delivery:"宅配"};}
 function addItem(data){itemRows.push(data||blankRow());renderItems();}
 function rmItem(i){itemRows.splice(i,1);if(!itemRows.length)itemRows.push(blankRow());renderItems();}
+/* 依欄位設定篩選下拉選項：true/undefined=全部；array=僅這些 */
+function fO(all,cfgVal){return Array.isArray(cfgVal)?all.filter(o=>cfgVal.includes(o)):all;}
 function renderItems(){
   itemWrap.innerHTML=itemRows.map((r,i)=>{
     const ci=CATALOG.findIndex(c=>c.name===r.item);
@@ -451,14 +450,14 @@ function renderItems(){
     const F={
       period:`<div><label>活動期間</label><input value="${esc(r.period)}" oninput="setRow(${i},'period',this.value)" placeholder="例：2026/06/01-06/30"></div>`,
       plan:`<div><label>設計／行銷方案</label>
-          <select onchange="setRow(${i},'plan',this.value)">${["<option value=''>— 請選擇 —</option>"].concat(PLAN_OPTS.map(o=>`<option ${r.plan===o?"selected":""}>${esc(o)}</option>`)).join("")}</select></div>`,
+          <select onchange="setRow(${i},'plan',this.value)">${["<option value=''>— 請選擇 —</option>"].concat(fO(PLAN_OPTS,cfg.plan).map(o=>`<option ${r.plan===o?"selected":""}>${esc(o)}</option>`)).join("")}</select></div>`,
       qty:`<div><label>數量 <span class="req">*</span></label><input value="${esc(r.qty)}" oninput="setRow(${i},'qty',this.value)" placeholder="例：2000張 / 1張 / 1組"></div>`,
       option:`<div><label>選配方式</label>
-          <select onchange="setRow(${i},'option',this.value)">${OPTION_OPTS.map(o=>`<option ${r.option===o?"selected":""}>${esc(o)}</option>`).join("")}</select></div>`,
+          <select onchange="setRow(${i},'option',this.value)">${fO(OPTION_OPTS,cfg.option).map(o=>`<option ${r.option===o?"selected":""}>${esc(o)}</option>`).join("")}</select></div>`,
       format:`<div><label>檔案格式</label>
-          <select onchange="setRow(${i},'format',this.value)">${FORMAT_OPTS.map(o=>`<option ${r.format===o?"selected":""}>${esc(o)}</option>`).join("")}</select></div>`,
+          <select onchange="setRow(${i},'format',this.value)">${fO(FORMAT_OPTS,cfg.format).map(o=>`<option ${r.format===o?"selected":""}>${esc(o)}</option>`).join("")}</select></div>`,
       delivery:`<div><label>運送方式</label>
-          <select onchange="setRow(${i},'delivery',this.value)">${DELIVERY_OPTS.map(o=>`<option ${r.delivery===o?"selected":""}>${esc(o)}</option>`).join("")}</select></div>`
+          <select onchange="setRow(${i},'delivery',this.value)">${fO(DELIVERY_OPTS,cfg.delivery).map(o=>`<option ${r.delivery===o?"selected":""}>${esc(o)}</option>`).join("")}</select></div>`
     };
     const optionalHtml=FIELD_DEFS.map(([k])=>cfg[k]?F[k]:"").join("");
     return `<div class="item-card">
@@ -480,10 +479,68 @@ function renderItems(){
 function renderFieldTable(){
   fcBody.innerHTML=CATALOG.map(c=>{
     const cfg=itemFieldCfg(c.name);
-    return `<tr><td style="max-width:260px">${esc(c.name)}</td>`+
-      FIELD_DEFS.map(([k])=>`<td style="text-align:center"><input type="checkbox" data-item="${esc(c.name).replace(/"/g,'&quot;')}" data-key="${k}" ${cfg[k]?"checked":""} style="width:auto;height:18px"></td>`).join("")+
-      `</tr>`;
+    const summary=FIELD_DEFS.map(([k,lbl])=>{
+      if(cfg[k]===false)return null;
+      if(Array.isArray(cfg[k]))return `<b>${lbl}</b><span style="color:var(--primary);font-size:11px">（${cfg[k].length}項）</span>`;
+      return lbl;
+    }).filter(Boolean).join(' · ')||'<span style="color:var(--muted)">全部隱藏</span>';
+    return `<tr>
+      <td style="max-width:200px;word-break:break-all;font-size:13px">${esc(c.name)}</td>
+      <td style="font-size:12px;color:var(--muted);line-height:1.8">${summary}</td>
+      <td><button class="btn sm ghost" type="button" onclick="openFieldCfgModal(${JSON.stringify(c.name)})">設定</button></td>
+    </tr>`;
   }).join("");
+}
+/* ====== 品項欄位設定 Modal ====== */
+const FC_DROPDOWN=['plan','option','format','delivery'];
+const FC_OPTS_MAP=()=>({plan:PLAN_OPTS,option:OPTION_OPTS,format:FORMAT_OPTS,delivery:DELIVERY_OPTS});
+function openFieldCfgModal(itemName){
+  const cfg=itemFieldCfg(itemName);
+  const optsMap=FC_OPTS_MAP();
+  const sections=FIELD_DEFS.map(([key,label])=>{
+    const isDrop=FC_DROPDOWN.includes(key);
+    const shown=cfg[key]!==false;
+    const optHtml=isDrop?`<div class="fco-opts" style="display:${shown?'flex':'none'};flex-wrap:wrap;gap:8px;margin:8px 0 4px 22px">
+      ${(optsMap[key]||[]).map(o=>`<label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:400;cursor:pointer;white-space:nowrap">
+        <input type="checkbox" class="fco-opt" data-key="${key}" data-opt="${esc(o).replace(/"/g,'&quot;')}"
+          ${Array.isArray(cfg[key])?cfg[key].includes(o)?"checked":"":shown?"checked":""} style="width:auto;height:15px"> ${esc(o)}
+      </label>`).join('')}
+    </div>`:'';
+    return `<div class="fco-section" style="border-bottom:1px solid var(--line);padding:10px 0">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;font-weight:600">
+        <input type="checkbox" class="fco-show" data-key="${key}" ${shown?"checked":""} onchange="fcoToggle(this)" style="width:auto;height:16px">
+        ${label}${!isDrop?'<span style="font-size:11px;font-weight:400;color:var(--muted)">（文字輸入）</span>':''}
+      </label>${optHtml}
+    </div>`;
+  }).join('');
+  showModal(`<button class="close-x" onclick="closeModal()">×</button>
+    <h2 style="font-size:15px;word-break:break-all;margin-bottom:6px">📋 ${esc(itemName)}</h2>
+    <p class="hint" style="margin-bottom:10px">勾選要顯示的欄位；下拉欄位可進一步勾選允許的選項（不勾=隱藏該選項）。</p>
+    ${sections}
+    <div class="btn-row" style="margin-top:16px">
+      <button class="btn" onclick="saveFieldCfgModal(${JSON.stringify(itemName)})">儲存此品項設定</button>
+      <button class="btn sec" onclick="closeModal()">取消</button>
+    </div>`);
+}
+function fcoToggle(cb){
+  const sec=cb.closest('.fco-section'),optDiv=sec&&sec.querySelector('.fco-opts');
+  if(optDiv)optDiv.style.display=cb.checked?'flex':'none';
+}
+function saveFieldCfgModal(itemName){
+  const optsMap=FC_OPTS_MAP();
+  const newCfg={};
+  document.querySelectorAll('.fco-show').forEach(cb=>{
+    const key=cb.dataset.key,isDrop=FC_DROPDOWN.includes(key);
+    if(!cb.checked){newCfg[key]=false;}
+    else if(isDrop){
+      const checked=[...document.querySelectorAll(`.fco-opt[data-key="${key}"]`)].filter(c=>c.checked).map(c=>c.dataset.opt);
+      const all=optsMap[key]||[];
+      newCfg[key]=checked.length===all.length?true:checked.length?checked:false;
+    }else{newCfg[key]=true;}
+  });
+  fieldCfg[itemName]=newCfg;saveFieldCfgLocal();renderItems();renderFieldTable();closeModal();
+  if(API_URL){api("saveFieldConfig",{fieldConfig:fieldCfg}).catch(e=>toast("⚠ 雲端儲存失敗："+e.message));toast("已儲存（雲端同步中…）");}
+  else{toast("已儲存（本機）");}
 }
 function onItem(i,v){
   const c=CATALOG[+v];
@@ -877,18 +934,15 @@ saveOptsBtn.addEventListener("click",async()=>{
 });
 
 /* ====== 申請欄位設定 事件 ====== */
-fcAllOn.addEventListener("click",()=>fcBody.querySelectorAll("input[type=checkbox]").forEach(cb=>cb.checked=true));
-fcAllOff.addEventListener("click",()=>fcBody.querySelectorAll("input[type=checkbox]").forEach(cb=>cb.checked=false));
+fcAllOn.addEventListener("click",()=>{
+  CATALOG.forEach(c=>{fieldCfg[c.name]={period:true,plan:true,qty:true,option:true,format:true,delivery:true};});
+  saveFieldCfgLocal();renderFieldTable();renderItems();
+  toast("已全部重設（所有欄位顯示所有選項）");
+});
 saveFields.addEventListener("click",async()=>{
-  const cfg={};
-  fcBody.querySelectorAll("input[type=checkbox]").forEach(cb=>{
-    const it=cb.dataset.item,k=cb.dataset.key;
-    if(!cfg[it])cfg[it]={};cfg[it][k]=cb.checked;
-  });
-  fieldCfg=cfg;saveFieldCfgLocal();
   if(API_URL){
     saveFields.disabled=true;
-    try{ await api("saveFieldConfig",{fieldConfig:cfg}); toast("申請欄位設定已儲存（雲端，全門市共用）"); }
+    try{ await api("saveFieldConfig",{fieldConfig:fieldCfg}); toast("申請欄位設定已儲存（雲端，全門市共用）"); }
     catch(e){ toast("⚠ 儲存失敗："+e.message); }
     finally{ saveFields.disabled=false; }
   }else{ toast("申請欄位設定已儲存（本機）"); }
