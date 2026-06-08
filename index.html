@@ -233,7 +233,7 @@
   <section class="view" id="view-fields">
     <div class="card">
       <h2>申請欄位設定</h2>
-      <p class="hint">點「設定」可個別設定每個品項顯示哪些欄位，以及各下拉欄位只允許哪些選項（如：選配方式只限「自費選購」）。「文宣品項」與「申請文宣內容」一律顯示。</p>
+      <p class="hint">點「設定」可個別設定每個品項顯示哪些欄位，並為各下拉欄位設定<b>此品項專屬</b>的選項與選項內容（可沿用共用清單，或取消沿用後單獨新增／刪除／編輯）。「文宣品項」與「申請文宣內容」一律顯示。</p>
       <div class="btn-row" style="margin-top:0">
         <button class="btn sec sm" id="fcAllOn" type="button">全部重設（顯示所有欄位與選項）</button>
       </div>
@@ -439,8 +439,8 @@ function catalogOptions(sel){
 function blankRow(){return {item:"",period:"",plan:"",content:"",option:"自費選購",qty:"",format:"印刷稿",delivery:"宅配"};}
 function addItem(data){itemRows.push(data||blankRow());renderItems();}
 function rmItem(i){itemRows.splice(i,1);if(!itemRows.length)itemRows.push(blankRow());renderItems();}
-/* 依欄位設定篩選下拉選項：true/undefined=全部；array=僅這些 */
-function fO(all,cfgVal){return Array.isArray(cfgVal)?all.filter(o=>cfgVal.includes(o)):all;}
+/* 依欄位設定取下拉選項：true/undefined=沿用共用清單；array=此品項專屬清單（內容可與共用不同）*/
+function fO(all,cfgVal){return Array.isArray(cfgVal)?cfgVal:all;}
 function renderItems(){
   itemWrap.innerHTML=itemRows.map((r,i)=>{
     const ci=CATALOG.findIndex(c=>c.name===r.item);
@@ -481,7 +481,7 @@ function renderFieldTable(){
     const cfg=itemFieldCfg(c.name);
     const summary=FIELD_DEFS.map(([k,lbl])=>{
       if(cfg[k]===false)return null;
-      if(Array.isArray(cfg[k]))return `<b>${lbl}</b><span style="color:var(--primary);font-size:11px">（${cfg[k].length}項）</span>`;
+      if(Array.isArray(cfg[k]))return `<b>${lbl}</b><span style="color:var(--primary);font-size:11px">（專屬${cfg[k].length}項）</span>`;
       return lbl;
     }).filter(Boolean).join(' · ')||'<span style="color:var(--muted)">全部隱藏</span>';
     return `<tr>
@@ -491,52 +491,89 @@ function renderFieldTable(){
     </tr>`;
   }).join("");
 }
-/* ====== 品項欄位設定 Modal ====== */
+/* ====== 品項欄位設定 Modal（每個品項可個別管理專屬選項與選項內容）====== */
 const FC_DROPDOWN=['plan','option','format','delivery'];
 const FC_OPTS_MAP=()=>({plan:PLAN_OPTS,option:OPTION_OPTS,format:FORMAT_OPTS,delivery:DELIVERY_OPTS});
+/* Modal 編輯暫存：fcModalItem=當前品項；fcoShow[key]=是否顯示；fcoEdit[key]=此品項專屬選項清單；fcoShared[key]=是否沿用共用清單 */
+let fcModalItem=null, fcoShow={}, fcoEdit={}, fcoShared={};
 function openFieldCfgModal(itemName){
+  fcModalItem=itemName;
   const cfg=itemFieldCfg(itemName);
+  const optsMap=FC_OPTS_MAP();
+  fcoShow={}; fcoEdit={}; fcoShared={};
+  FIELD_DEFS.forEach(([key])=>{
+    fcoShow[key]=cfg[key]!==false;
+    if(FC_DROPDOWN.includes(key)){
+      const custom=Array.isArray(cfg[key]);
+      fcoShared[key]=!custom;                                   // 非陣列＝沿用共用
+      fcoEdit[key]=custom?[...cfg[key]]:[...(optsMap[key]||[])]; // 沿用時以共用清單為起始內容
+    }
+  });
+  renderFcModal();
+}
+function renderFcModal(){
   const optsMap=FC_OPTS_MAP();
   const sections=FIELD_DEFS.map(([key,label])=>{
     const isDrop=FC_DROPDOWN.includes(key);
-    const shown=cfg[key]!==false;
-    const optHtml=isDrop?`<div class="fco-opts" style="display:${shown?'flex':'none'};flex-wrap:wrap;gap:8px;margin:8px 0 4px 22px">
-      ${(optsMap[key]||[]).map(o=>`<label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:400;cursor:pointer;white-space:nowrap">
-        <input type="checkbox" class="fco-opt" data-key="${key}" data-opt="${esc(o).replace(/"/g,'&quot;')}"
-          ${Array.isArray(cfg[key])?cfg[key].includes(o)?"checked":"":shown?"checked":""} style="width:auto;height:15px"> ${esc(o)}
-      </label>`).join('')}
-    </div>`:'';
+    const shown=fcoShow[key];
+    let body='';
+    if(isDrop){
+      const shared=fcoShared[key];
+      const chips=shared
+        ? `<div style="font-size:12px;color:var(--muted);margin:6px 0 4px 22px">沿用共用選項（共 ${ (optsMap[key]||[]).length } 項）：${(optsMap[key]||[]).map(esc).join('、')||'—'}</div>`
+        : `<div style="display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 8px 22px">
+            ${(fcoEdit[key]||[]).map((o,i)=>`<span style="background:#eef5f0;border:1px solid #b8d4c0;border-radius:20px;padding:4px 12px;font-size:13px;display:inline-flex;align-items:center;gap:6px">${esc(o)}<button type="button" onclick="fcoRm('${key}',${i})" style="background:none;border:none;cursor:pointer;color:#c0392b;font-size:15px;padding:0;line-height:1;font-weight:700">×</button></span>`).join('')||'<span style="font-size:12px;color:var(--muted)">尚無選項，請於下方新增</span>'}
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;margin:0 0 4px 22px">
+            <input id="fcoIn_${key}" placeholder="新增此品項專屬選項內容…" onkeydown="if(event.key==='Enter'){event.preventDefault();fcoAdd('${key}')}" style="flex:1;padding:7px 11px;border:1px solid #cdd5d0;border-radius:7px;font-size:13px;font-family:inherit">
+            <button class="btn sec sm" type="button" onclick="fcoAdd('${key}')">＋ 新增</button>
+          </div>`;
+      const toggleShared=`<label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:400;color:var(--muted);cursor:pointer;margin:2px 0 2px 22px">
+          <input type="checkbox" ${shared?'checked':''} onchange="fcoSetShared('${key}',this.checked)" style="width:auto;height:14px"> 沿用共用選項（取消勾選即可改為此品項專屬內容）
+        </label>`;
+      body=`<div class="fco-opts" style="display:${shown?'block':'none'}">${toggleShared}${chips}</div>`;
+    }
     return `<div class="fco-section" style="border-bottom:1px solid var(--line);padding:10px 0">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;font-weight:600">
-        <input type="checkbox" class="fco-show" data-key="${key}" ${shown?"checked":""} onchange="fcoToggle(this)" style="width:auto;height:16px">
+        <input type="checkbox" ${shown?"checked":""} onchange="fcoSetShow('${key}',this.checked)" style="width:auto;height:16px">
         ${label}${!isDrop?'<span style="font-size:11px;font-weight:400;color:var(--muted)">（文字輸入）</span>':''}
-      </label>${optHtml}
+      </label>${body}
     </div>`;
   }).join('');
   showModal(`<button class="close-x" onclick="closeModal()">×</button>
-    <h2 style="font-size:15px;word-break:break-all;margin-bottom:6px">📋 ${esc(itemName)}</h2>
-    <p class="hint" style="margin-bottom:10px">勾選要顯示的欄位；下拉欄位可進一步勾選允許的選項（不勾=隱藏該選項）。</p>
+    <h2 style="font-size:15px;word-break:break-all;margin-bottom:6px">📋 ${esc(fcModalItem)}</h2>
+    <p class="hint" style="margin-bottom:10px">勾選要顯示的欄位。下拉欄位預設沿用共用選項；取消「沿用共用選項」即可為<b>此品項</b>單獨新增／刪除／編輯專屬選項內容。</p>
     ${sections}
     <div class="btn-row" style="margin-top:16px">
-      <button class="btn" onclick="saveFieldCfgModal(${JSON.stringify(itemName)})">儲存此品項設定</button>
+      <button class="btn" onclick="saveFieldCfgModal()">儲存此品項設定</button>
       <button class="btn sec" onclick="closeModal()">取消</button>
     </div>`);
 }
-function fcoToggle(cb){
-  const sec=cb.closest('.fco-section'),optDiv=sec&&sec.querySelector('.fco-opts');
-  if(optDiv)optDiv.style.display=cb.checked?'flex':'none';
+function fcoSetShow(key,checked){fcoShow[key]=checked;renderFcModal();}
+function fcoSetShared(key,checked){
+  fcoShared[key]=checked;
+  if(checked)fcoEdit[key]=[...(FC_OPTS_MAP()[key]||[])]; // 重新勾選沿用＝以共用清單為起始內容，之後仍可取消再客製
+  renderFcModal();
 }
-function saveFieldCfgModal(itemName){
-  const optsMap=FC_OPTS_MAP();
+function fcoRm(key,i){(fcoEdit[key]||[]).splice(i,1);renderFcModal();}
+function fcoAdd(key){
+  const inp=document.getElementById('fcoIn_'+key);
+  const v=(inp?inp.value:'').trim();
+  if(!v)return;
+  if(!fcoEdit[key])fcoEdit[key]=[];
+  if(fcoEdit[key].includes(v)){toast('此選項已存在');return;}
+  fcoEdit[key].push(v);
+  renderFcModal();
+  const ni=document.getElementById('fcoIn_'+key); if(ni)ni.focus();
+}
+function saveFieldCfgModal(){
+  const itemName=fcModalItem;
   const newCfg={};
-  document.querySelectorAll('.fco-show').forEach(cb=>{
-    const key=cb.dataset.key,isDrop=FC_DROPDOWN.includes(key);
-    if(!cb.checked){newCfg[key]=false;}
-    else if(isDrop){
-      const checked=[...document.querySelectorAll(`.fco-opt[data-key="${key}"]`)].filter(c=>c.checked).map(c=>c.dataset.opt);
-      const all=optsMap[key]||[];
-      newCfg[key]=checked.length===all.length?true:checked.length?checked:false;
-    }else{newCfg[key]=true;}
+  FIELD_DEFS.forEach(([key])=>{
+    if(!fcoShow[key]){newCfg[key]=false;return;}
+    if(!FC_DROPDOWN.includes(key)){newCfg[key]=true;return;}
+    if(fcoShared[key]){newCfg[key]=true;return;}                 // 沿用共用
+    newCfg[key]=(fcoEdit[key]||[]).filter(Boolean);              // 此品項專屬清單
   });
   fieldCfg[itemName]=newCfg;saveFieldCfgLocal();renderItems();renderFieldTable();closeModal();
   if(API_URL){api("saveFieldConfig",{fieldConfig:fieldCfg}).catch(e=>toast("⚠ 雲端儲存失敗："+e.message));toast("已儲存（雲端同步中…）");}
