@@ -262,11 +262,11 @@
     </div>
     <div class="card">
       <h2>文宣品項管理</h2>
-      <p class="hint">新增、刪除或修改文宣品項清單與各項的基準報價、時程資訊；儲存後全門市共用，申請表的下拉即時更新。</p>
+      <p class="hint">新增或修改文宣品項清單與各項的基準報價、時程資訊。不再申請的品項請按「隱藏」（不會出現在門市申請表，但保留資料、隨時可再「顯示」），不直接刪除。儲存後全門市共用，申請表的下拉即時更新。</p>
       <div class="scrollwrap" style="margin-top:12px">
         <table id="catEditTable">
           <thead><tr>
-            <th>品項名稱</th><th>基準數量</th><th>基準報價($)</th><th>運費</th><th>重新設計</th><th>印刷</th><th>預設格式</th><th></th>
+            <th>品項名稱</th><th>基準數量</th><th>基準報價($)</th><th>運費</th><th>重新設計</th><th>印刷</th><th>預設格式</th><th>顯示／隱藏</th>
           </tr></thead>
           <tbody id="catEditBody"></tbody>
         </table>
@@ -434,7 +434,8 @@ f_date.value=today();
 /* ====== 品項列（repeater）====== */
 function catalogOptions(sel){
   return "<option value=''>— 選擇文宣品項 —</option>"+
-    CATALOG.map((c,i)=>`<option value="${i}" ${sel==i?"selected":""}>${esc(c.name)}</option>`).join("");
+    CATALOG.map((c,i)=>({c,i})).filter(o=>!o.c.hidden||o.i==sel)  // 隱藏品項不顯示（但已選取者仍保留）
+      .map(({c,i})=>`<option value="${i}" ${sel==i?"selected":""}>${esc(c.name)}</option>`).join("");
 }
 function blankRow(){return {item:"",period:"",plan:"",content:"",option:"自費選購",qty:"",format:"印刷稿",delivery:"宅配"};}
 function addItem(data){itemRows.push(data||blankRow());renderItems();}
@@ -484,8 +485,8 @@ function renderFieldTable(){
       if(Array.isArray(cfg[k]))return `<b>${lbl}</b><span style="color:var(--primary);font-size:11px">（專屬${cfg[k].length}項）</span>`;
       return lbl;
     }).filter(Boolean).join(' · ')||'<span style="color:var(--muted)">全部隱藏</span>';
-    return `<tr>
-      <td style="max-width:200px;word-break:break-all;font-size:13px">${esc(c.name)}</td>
+    return `<tr style="${c.hidden?'opacity:.55':''}">
+      <td style="max-width:200px;word-break:break-all;font-size:13px">${esc(c.name)}${c.hidden?'<span style="margin-left:6px;font-size:11px;color:var(--muted)">（已隱藏）</span>':''}</td>
       <td style="font-size:12px;color:var(--muted);line-height:1.8">${summary}</td>
       <td><button class="btn sm ghost" type="button" onclick="openFieldCfgModal(${JSON.stringify(c.name).replace(/"/g,'&quot;')})">設定</button></td>
     </tr>`;
@@ -893,21 +894,21 @@ function catSyncFromDom(){
 function renderCatalogEditor(){
   const tbody=document.getElementById("catEditBody");
   if(!tbody)return;
-  tbody.innerHTML=catalogEdit.map((c,i)=>`<tr>
-    <td><input class="ce-inp" data-i="${i}" data-k="name" value="${esc(c.name)}" style="min-width:160px"></td>
+  tbody.innerHTML=catalogEdit.map((c,i)=>`<tr style="${c.hidden?'opacity:.5;background:#f6f7f6':''}">
+    <td><input class="ce-inp" data-i="${i}" data-k="name" value="${esc(c.name)}" style="min-width:160px">${c.hidden?'<span style="margin-left:6px;font-size:11px;color:var(--muted)">（已隱藏）</span>':''}</td>
     <td><input class="ce-inp" data-i="${i}" data-k="baseQty" value="${esc(c.baseQty||"")}" style="width:78px"></td>
     <td><input class="ce-inp" data-i="${i}" data-k="price" type="number" value="${c.price||0}" style="width:75px"></td>
     <td><input class="ce-inp" data-i="${i}" data-k="ship" value="${esc(c.ship||"")}" style="width:85px"></td>
     <td><input class="ce-inp" data-i="${i}" data-k="design" value="${esc(c.design||"")}" style="width:100px"></td>
     <td><input class="ce-inp" data-i="${i}" data-k="print" value="${esc(c.print||"")}" style="width:95px"></td>
     <td><select class="ce-inp" data-i="${i}" data-k="format" style="width:90px">${CE_FORMAT_OPTS.map(o=>`<option ${c.format===o?"selected":""}>${o}</option>`).join("")}</select></td>
-    <td><button class="btn danger sm" type="button" onclick="catRm(${i})">×</button></td>
+    <td><button class="btn ${c.hidden?'sec':'ghost'} sm" type="button" onclick="catToggleHide(${i})">${c.hidden?'顯示':'隱藏'}</button></td>
   </tr>`).join("");
 }
-function catRm(i){catSyncFromDom();catalogEdit.splice(i,1);renderCatalogEditor();}
+function catToggleHide(i){catSyncFromDom();catalogEdit[i].hidden=!catalogEdit[i].hidden;renderCatalogEditor();}
 catAddBtn.addEventListener("click",()=>{
   catSyncFromDom();
-  catalogEdit.push({name:"",baseQty:"",price:0,ship:"—",design:"",print:"",format:"印刷稿"});
+  catalogEdit.push({name:"",baseQty:"",price:0,ship:"—",design:"",print:"",format:"印刷稿",hidden:false});
   renderCatalogEditor();
 });
 saveCatalogBtn.addEventListener("click",async()=>{
