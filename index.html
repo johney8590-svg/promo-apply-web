@@ -255,6 +255,15 @@
   <!-- ===== 品項/選項管理 ===== -->
   <section class="view" id="view-optmgr">
     <div class="card">
+      <h2>管理密碼設定</h2>
+      <p class="hint">可設定多組管理密碼（多人使用時每人一組）；顯示為遮罩（前2碼明文），至少保留一組。</p>
+      <div id="pwListWrap" style="margin-bottom:12px"></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="password" id="newPwInput" placeholder="輸入新密碼（至少4碼）後按新增…" style="flex:1;padding:9px 11px;border:1px solid #cdd5d0;border-radius:7px;font-size:14px;font-family:inherit">
+        <button class="btn sec sm" id="addPwBtn" type="button">＋ 新增</button>
+      </div>
+    </div>
+    <div class="card">
       <h2>文宣品項管理</h2>
       <p class="hint">新增、刪除或修改文宣品項清單與各項的基準報價、時程資訊；儲存後全門市共用，申請表的下拉即時更新。</p>
       <div class="scrollwrap" style="margin-top:12px">
@@ -735,6 +744,44 @@ testLine.addEventListener("click",async ()=>{
   }else{ toast("尚未設定雲端後端，無法發送"); }
 });
 
+/* ====== 管理密碼設定 ====== */
+let adminPassList=[];
+function maskPw(pw){const s=String(pw);return s.length<=2?s:s.slice(0,2)+"●".repeat(Math.min(s.length-2,6));}
+function renderPasswordList(){
+  const wrap=document.getElementById("pwListWrap");if(!wrap)return;
+  if(!adminPassList.length){wrap.innerHTML=`<p style="color:var(--muted);font-size:13px">尚無密碼記錄（使用預設密碼登入中）</p>`;return;}
+  wrap.innerHTML=`<div style="display:flex;flex-wrap:wrap;gap:8px">`+
+    adminPassList.map((pw,i)=>`<span style="background:#eef5f0;border:1px solid #b8d4c0;border-radius:20px;padding:5px 14px;font-size:13px;display:inline-flex;align-items:center;gap:8px;font-family:monospace">
+      ${esc(maskPw(pw))}
+      <button type="button" onclick="deletePw(${i})" style="background:none;border:none;cursor:pointer;color:${adminPassList.length>1?"#c0392b":"#bbb"};font-size:16px;padding:0;line-height:1;font-weight:700" ${adminPassList.length<=1?"disabled title='至少保留一組密碼'":""}>×</button>
+    </span>`).join("")+`</div>`;
+}
+async function loadPasswordList(){
+  if(!API_URL)return;
+  try{const list=await api("listPasswords");if(Array.isArray(list)){adminPassList=list;renderPasswordList();}}
+  catch(e){console.warn("密碼清單載入失敗",e);}
+}
+async function deletePw(i){
+  if(adminPassList.length<=1){toast("至少保留一組密碼");return;}
+  if(!confirm("確定刪除這組密碼？"))return;
+  const pw=adminPassList[i];
+  try{await api("deletePassword",{password:pw});adminPassList.splice(i,1);renderPasswordList();toast("密碼已刪除");}
+  catch(e){toast("⚠ 刪除失敗："+e.message);}
+}
+addPwBtn.addEventListener("click",async()=>{
+  const inp=document.getElementById("newPwInput");
+  const pw=inp?inp.value.trim():"";
+  if(!pw){toast("請輸入新密碼");return;}
+  if(pw.length<4){toast("密碼長度至少 4 碼");return;}
+  addPwBtn.disabled=true;
+  try{
+    await api("addPassword",{password:pw});
+    adminPassList.push(pw);renderPasswordList();
+    if(inp)inp.value="";toast("密碼已新增");
+  }catch(e){toast("⚠ 新增失敗："+e.message);}
+  finally{addPwBtn.disabled=false;}
+});
+
 /* ====== 品項/選項管理 ====== */
 let catalogEdit=[];
 let optEdit={};
@@ -892,7 +939,7 @@ nav.querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{
   if(b.dataset.tab==="dashboard")renderDash();
   if(b.dataset.tab==="list")renderList();
   if(b.dataset.tab==="fields")renderFieldTable();
-  if(b.dataset.tab==="optmgr"){catalogEdit=CATALOG.map(c=>({...c}));initOptEdit();renderCatalogEditor();renderOptionEditor();}
+  if(b.dataset.tab==="optmgr"){catalogEdit=CATALOG.map(c=>({...c}));initOptEdit();renderCatalogEditor();renderOptionEditor();loadPasswordList();}
 }));
 
 /* ====== 工具 ====== */
