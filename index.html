@@ -464,7 +464,7 @@ function catalogOptions(sel){
     CATALOG.map((c,i)=>({c,i})).filter(o=>!o.c.hidden||o.i==sel)  // 隱藏品項不顯示（但已選取者仍保留）
       .map(({c,i})=>`<option value="${i}" ${sel==i?"selected":""}>${esc(c.name)}</option>`).join("");
 }
-function blankRow(){return {item:"",period:"",plan:"",content:"",option:"自費選購",qty:"",format:"印刷稿",delivery:"宅配"};}
+function blankRow(){return {item:"",period:"",plan:"",content:"",option:"自費選購",qty:"",format:"印刷稿",delivery:"宅配",image:""};}
 function addItem(data){itemRows.push(data||blankRow());renderItems();}
 function rmItem(i){itemRows.splice(i,1);if(!itemRows.length)itemRows.push(blankRow());renderItems();}
 /* 依欄位設定取下拉選項：true/undefined=沿用共用清單；array=此品項專屬清單（內容可與共用不同）*/
@@ -498,6 +498,12 @@ function renderItems(){
         ${optionalHtml}
         <div class="full"><label>申請文宣內容 <span class="req">*</span></label>
           <textarea oninput="setRow(${i},'content',this.value)" placeholder="文宣上要呈現的文案／訴求，例：外送門檻、活動辦法、菜單內容…">${esc(r.content)}</textarea></div>
+        <div class="full"><label>附件圖檔（選填，可放門市自己的 QRcode 或參考圖）</label>
+          <input type="file" accept="image/*" onchange="onItemImage(${i},this)">
+          ${r.image?`<div style="margin-top:8px;display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap">
+            <a href="${r.image}" target="_blank"><img src="${r.image}" alt="附件預覽" style="max-width:160px;max-height:160px;border:1px solid var(--line);border-radius:8px;display:block"></a>
+            <button class="btn danger sm" type="button" onclick="rmItemImage(${i})">移除圖檔</button>
+          </div>`:`<div style="font-size:11px;color:var(--muted);margin-top:4px">支援 JPG／PNG，上傳後會自動壓縮</div>`}</div>
       </div>
       ${quote}
     </div>`;
@@ -616,6 +622,35 @@ function onItem(i,v){
   renderItems();
 }
 function setRow(i,k,v){itemRows[i][k]=v; if(k==='qty')renderTotal();}
+/* 圖檔壓縮：縮到最長邊 maxDim、JPEG 壓縮，並確保 base64 不超過約 40KB（attachments 儲存格上限保護）*/
+function fileToCompressedDataUrl(file,maxDim,quality){
+  return new Promise((resolve,reject)=>{
+    const fr=new FileReader();
+    fr.onload=()=>{
+      const img=new Image();
+      img.onload=()=>{
+        let w=img.width,h=img.height;
+        if(w>maxDim||h>maxDim){const s=maxDim/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}
+        const draw=(ww,hh,q)=>{const cv=document.createElement("canvas");cv.width=ww;cv.height=hh;const x=cv.getContext("2d");x.fillStyle="#fff";x.fillRect(0,0,ww,hh);x.drawImage(img,0,0,ww,hh);return cv.toDataURL("image/jpeg",q);};
+        let q=quality,url=draw(w,h,q);
+        while(url.length>40000&&q>0.3){q-=0.1;url=draw(w,h,q);}
+        let ww=w,hh=h;
+        while(url.length>40000&&ww>200){ww=Math.round(ww*0.8);hh=Math.round(hh*0.8);url=draw(ww,hh,0.5);}
+        resolve(url);
+      };
+      img.onerror=reject;img.src=fr.result;
+    };
+    fr.onerror=reject;fr.readAsDataURL(file);
+  });
+}
+async function onItemImage(i,el){
+  const f=el.files&&el.files[0];if(!f)return;
+  if(!/^image\//.test(f.type)){toast("請選擇圖片檔（JPG／PNG）");el.value="";return;}
+  toast("圖片處理中…");
+  try{ itemRows[i].image=await fileToCompressedDataUrl(f,600,0.7); renderItems(); }
+  catch(e){ console.warn("圖片讀取失敗",e); toast("⚠ 圖片讀取失敗，請換一張試試"); }
+}
+function rmItemImage(i){ itemRows[i].image=""; renderItems(); }
 /* 數量離開欄位即時防呆：基準量>1 的品項，數量非正整數倍 → 主動通知錯誤量並清除（不把無效值填進去）*/
 function qtyCheck(i,el){
   const r=itemRows[i]; const cat=CATALOG.find(c=>c.name===r.item); if(!cat)return;
@@ -651,7 +686,7 @@ function genCaseNo(store,dstr){
   const n=cases.filter(c=>c.store===store&&(c.applyDate||"").replaceAll("-","")===base).length+1;
   return "PR"+store+base+pad3(n);
 }
-submitBtn.addEventListener("click",async ()=>{
+submitBtn.addEventListener("click",()=>{
   const items=itemRows.filter(r=>r.item);
   if(!f_store.value){toast("請選擇門市");return;}
   if(!f_phone.value.trim()){toast("請填寫聯絡電話（門市電話）");return;}
@@ -671,6 +706,54 @@ submitBtn.addEventListener("click",async ()=>{
       }
     }
   }
+  openSignatureModal(items);   // 送出前先電子簽名確認
+});
+
+/* ====== 電子簽名（送出前必填，確認申請由本門市提出）====== */
+let sigCtx=null,sigDrawing=false,sigHasInk=false;
+function openSignatureModal(items){
+  showModal(`<button class="close-x" onclick="closeModal()">×</button>
+    <h2>申請人電子簽名</h2>
+    <p class="hint">請<b>本門市申請人</b>於下方框內簽名後送出，作為此申請確實由 <b>${esc(f_store.value)}</b> 提出之確認（避免代填他店或惡意申請）。</p>
+    <div style="border:1px dashed var(--primary);border-radius:10px;background:#fff">
+      <canvas id="sigPad" style="width:100%;height:200px;display:block;touch-action:none"></canvas>
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-top:6px">門市：<b>${esc(f_store.value)}</b>（${esc(STORE_REGION[f_store.value]||"")}）　聯絡電話：${esc(f_phone.value)}</div>
+    <div class="btn-row" style="margin-top:10px">
+      <button class="btn ghost sm" type="button" onclick="clearSig()">清除重簽</button>
+    </div>
+    <div class="btn-row" style="margin-top:8px">
+      <button class="btn" id="sigConfirm" type="button">確認簽名並送出</button>
+      <button class="btn sec" type="button" onclick="closeModal()">取消</button>
+    </div>`);
+  setTimeout(initSigPad,30);   // 等 modal 版面完成再量尺寸
+  const btn=document.getElementById("sigConfirm");
+  if(btn)btn.addEventListener("click",()=>{
+    if(!sigHasInk){toast("請先簽名再送出");return;}
+    const url=document.getElementById("sigPad").toDataURL("image/png");
+    closeModal();
+    doSubmit(items,url);
+  });
+}
+function initSigPad(){
+  const cv=document.getElementById("sigPad");if(!cv)return;
+  const rect=cv.getBoundingClientRect();
+  cv.width=Math.max(300,Math.round(rect.width));cv.height=Math.round(rect.height||200);
+  sigCtx=cv.getContext("2d");sigCtx.lineWidth=2.5;sigCtx.lineCap="round";sigCtx.lineJoin="round";sigCtx.strokeStyle="#1e4d33";
+  sigHasInk=false;sigDrawing=false;
+  const pos=e=>{const r=cv.getBoundingClientRect();const t=(e.touches&&e.touches[0])?e.touches[0]:e;return{x:(t.clientX-r.left)*(cv.width/r.width),y:(t.clientY-r.top)*(cv.height/r.height)};};
+  const start=e=>{sigDrawing=true;const p=pos(e);sigCtx.beginPath();sigCtx.moveTo(p.x,p.y);e.preventDefault();};
+  const move=e=>{if(!sigDrawing)return;const p=pos(e);sigCtx.lineTo(p.x,p.y);sigCtx.stroke();sigHasInk=true;e.preventDefault();};
+  const end=()=>{sigDrawing=false;};
+  cv.addEventListener("mousedown",start);cv.addEventListener("mousemove",move);window.addEventListener("mouseup",end);
+  cv.addEventListener("touchstart",start,{passive:false});cv.addEventListener("touchmove",move,{passive:false});cv.addEventListener("touchend",end);
+}
+function clearSig(){const cv=document.getElementById("sigPad");if(cv&&sigCtx){sigCtx.clearRect(0,0,cv.width,cv.height);sigHasInk=false;}}
+
+/* 本機暫存前移除大型 base64（圖檔），避免 localStorage 爆量 */
+function stripBig(c){return {...c,items:(c.items||[]).map(it=>{const o={...it};if(o.image){o.hasImage=true;o.image="";}return o;})};}
+
+async function doSubmit(items,signatureDataUrl){
   const c={
     caseNo:genCaseNo(f_store.value,f_date.value),applyDate:f_date.value,dept:"",region:STORE_REGION[f_store.value]||"",store:f_store.value,
     supervisor:"",phone:f_phone.value,
@@ -683,21 +766,21 @@ submitBtn.addEventListener("click",async ()=>{
     submitBtn.disabled=true;submitBtn.textContent="送出中…";
     try{
       const saved=await api("create",{case:{applyDate:c.applyDate,dept:c.dept,region:c.region,store:c.store,
-        supervisor:c.supervisor,phone:c.phone,items:c.items,pos:c.pos}});
-      cases.unshift(saved);save();resetForm();refreshAll();
+        supervisor:c.supervisor,phone:c.phone,items:c.items,pos:c.pos,signature:signatureDataUrl}});
+      cases.unshift(saved);save();resetForm();refreshAll();   // saved 由後端回傳，圖檔已抽離，本機快取輕量
       toast("已送出申請（已存雲端）　"+saved.caseNo);
     }catch(e){
-      console.warn("雲端送出失敗，暫存本機",e);cases.unshift(c);
+      console.warn("雲端送出失敗，暫存本機",e);cases.unshift(stripBig(c));
       if(!save()){cases.shift();toast("⚠ 雲端送出失敗，且本機空間已滿");}
       else{resetForm();refreshAll();toast("⚠ 雲端送出失敗，已暫存本機："+c.caseNo);}
     }finally{ submitBtn.disabled=false;submitBtn.textContent="送出申請"; }
     return;
   }
-  cases.unshift(c);
+  cases.unshift(stripBig(c));
   if(!save()){cases.shift();toast("⚠ 本機儲存空間已滿");return;}
   resetForm();refreshAll();
   toast("已送出申請　"+c.caseNo);
-});
+}
 resetBtn.addEventListener("click",resetForm);
 function resetForm(){
   f_store.value="";f_phone.value="";f_date.value=today();
@@ -777,11 +860,37 @@ function openCase(idx){
     </div>
     <div class="sec-title"><span class="dot"></span>文宣輸出物（${c.items.length} 項）</div>
     ${itemsTbl}
+    <div id="attachWrap"></div>
     ${role==="admin"?`<div class="sec-title"><span class="dot"></span>POS 按鍵設定（內部）</div>${posSection}`:''}
     <div class="sec-title"><span class="dot"></span>處理進度（管理）</div>
     ${adminFields}
     ${role==="admin"?`<div class="btn-row"><button class="btn" onclick="saveCase(${idx})">儲存處理結果</button><button class="btn danger" onclick="delCase(${idx})">刪除案件</button></div>`
       :`<p class="hint" style="margin-top:10px">切換為「管理（總部）」角色才能更新處理進度。</p>`}`);
+  loadAttachments(c);
+}
+/* 載入並顯示案件附件（門市上傳圖檔／電子簽名）；getAttachments 為管理動作 */
+async function loadAttachments(c){
+  const wrap=document.getElementById("attachWrap");
+  if(!wrap)return;
+  if(!API_URL||role!=="admin"){wrap.innerHTML="";return;}
+  wrap.innerHTML=`<div class="hint" style="margin:8px 0">載入附件中…</div>`;
+  try{
+    const atts=await api("getAttachments",{caseNo:c.caseNo});
+    const imgs=(atts||[]).filter(a=>a.kind==="item").sort((a,b)=>a.idx-b.idx);
+    const sign=(atts||[]).find(a=>a.kind==="sign");
+    let html="";
+    if(imgs.length){
+      html+=`<div class="sec-title"><span class="dot"></span>門市上傳附件（${imgs.length}）</div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:6px">`+
+        imgs.map(a=>`<a href="${a.dataUrl}" target="_blank" title="品項${a.idx+1} 附件，點擊放大"><img src="${a.dataUrl}" style="max-width:180px;max-height:180px;border:1px solid var(--line);border-radius:8px;display:block"></a>`).join("")+
+        `</div>`;
+    }
+    if(sign){
+      html+=`<div class="sec-title"><span class="dot"></span>申請人電子簽名</div>
+        <img src="${sign.dataUrl}" alt="電子簽名" style="max-width:320px;border:1px solid var(--line);border-radius:8px;background:#fff;display:block">`;
+    }
+    wrap.innerHTML=html;   // 沒有附件就清空（不顯示區塊）
+  }catch(e){ console.warn("附件載入失敗",e); wrap.innerHTML=`<div class="hint" style="color:var(--danger)">附件載入失敗</div>`; }
 }
 async function saveCase(idx){
   const c=cases[idx];
