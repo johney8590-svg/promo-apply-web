@@ -164,12 +164,10 @@
 
       <div class="sec-title"><span class="dot"></span>申請資訊</div>
       <div class="grid">
-        <div><label>部門名稱</label><input type="text" id="f_dept" placeholder="例：茶飲營運部"></div>
         <div><label>區域 <span class="req">*</span></label><input type="text" id="f_region" placeholder="例：桃園 / 新北區"></div>
         <div><label>門市名稱 <span class="req">*</span></label><select id="f_store"></select></div>
-        <div><label>申請日期 <span class="req">*</span></label><input type="date" id="f_date"></div>
-        <div><label>營運督導</label><input type="text" id="f_super" placeholder="例：劉靜蓮 Jill"></div>
-        <div><label>電話</label><input type="text" id="f_phone" placeholder="門市電話"></div>
+        <div><label>申請日期 <span class="req">*</span></label><input type="date" id="f_date" readonly title="自動帶入當日日期"></div>
+        <div><label>聯絡電話（門市電話）<span class="req">*</span></label><input type="tel" id="f_phone" placeholder="例：03-438-0098（門市市話）"></div>
       </div>
 
       <div class="sec-title" style="margin-top:22px"><span class="dot"></span>文宣輸出物申請<span style="font-size:11px;font-weight:400;color:var(--muted)">（可新增多個品項）</span></div>
@@ -296,7 +294,7 @@
         <div class="full"><label>「連結」要導向的網址（{link} 代入值）</label><input type="text" id="line_link" placeholder="案件清單網址"></div>
         <div class="full"><label>通知內容範本</label>
           <textarea id="line_tpl" style="min-height:200px;font-family:inherit"></textarea>
-          <div class="pill-note" style="margin-top:8px">可用代入欄位：<code>{caseNo}</code> 案號 · <code>{store}</code> 門市 · <code>{region}</code> 區域 · <code>{applyDate}</code> 申請日期 · <code>{dept}</code> 部門 · <code>{supervisor}</code> 督導 · <code>{phone}</code> 電話 · <code>{items}</code> 申請品項摘要 · <code>{amount}</code> 預估金額 · <code>{link}</code> 連結。</div>
+          <div class="pill-note" style="margin-top:8px">可用代入欄位：<code>{caseNo}</code> 案號 · <code>{store}</code> 門市 · <code>{region}</code> 區域 · <code>{applyDate}</code> 申請日期 · <code>{phone}</code> 聯絡電話 · <code>{items}</code> 申請品項摘要 · <code>{amount}</code> 預估金額 · <code>{link}</code> 連結。</div>
         </div>
       </div>
       <div class="btn-row">
@@ -312,7 +310,23 @@
 
 <script>
 /* ====== 基礎資料 ====== */
-const STORES=["三重正義","中和南勢角","中壢中原","中壢新生","中山南西","信義永吉","信義虎林","信義通化","內壢忠孝","南投復興","台中中科","台中勤美","台中北平","台中大甲","台中大里","台中東山","台中東海","台中豐原","台中逢甲","台中黎明","台北大安","台北大巨蛋","台北石牌","台北萬芳","台北西湖","台南東寧","台南民生","台南永康","嘉義文化","基隆廟口","士林捷運","宜蘭礁溪","彰化員林","彰化彰基","忠孝敦化","斗六中山","新店民權","新竹民生","新竹清大","新莊幸福","板橋中正","林口長庚","桃園中正","桃園藝文","楊梅大成","永和永安市場","汐止中興","站前南陽","竹北勝利","竹北博愛","羅東民權","苗栗頭份","蘆洲光華","高雄巨蛋","高雄瑞隆","高雄美麗島"];
+/* 門市清單依地理區域（北→南）排序，方便門市尋找 */
+const STORES=[
+  /* 基隆 */ "基隆廟口",
+  /* 台北 */ "台北大安","台北大巨蛋","台北石牌","台北萬芳","台北西湖","中山南西","信義永吉","信義虎林","信義通化","忠孝敦化","士林捷運","站前南陽",
+  /* 新北 */ "三重正義","中和南勢角","板橋中正","新店民權","新莊幸福","永和永安市場","汐止中興","林口長庚","蘆洲光華",
+  /* 桃園 */ "中壢中原","中壢新生","內壢忠孝","桃園中正","桃園藝文","楊梅大成",
+  /* 新竹 */ "新竹民生","新竹清大","竹北勝利","竹北博愛",
+  /* 苗栗 */ "苗栗頭份",
+  /* 台中 */ "台中中科","台中勤美","台中北平","台中大甲","台中大里","台中東山","台中東海","台中豐原","台中逢甲","台中黎明",
+  /* 彰化 */ "彰化員林","彰化彰基",
+  /* 南投 */ "南投復興",
+  /* 雲林 */ "斗六中山",
+  /* 嘉義 */ "嘉義文化",
+  /* 台南 */ "台南東寧","台南民生","台南永康",
+  /* 高雄 */ "高雄巨蛋","高雄瑞隆","高雄美麗島",
+  /* 宜蘭 */ "宜蘭礁溪","羅東民權"
+];
 
 /* 文宣品項主檔（= Excel「設計清單」分頁；之後可改由後端試算表同步）。
    price 為設計部基準報價、ship 運費、design 重新設計時程、print 印刷時程、baseQty 基準數量、format 預設檔案格式 */
@@ -349,7 +363,7 @@ const DEFAULT_LINE_TPL=
   "案號：{caseNo}\n"+
   "門市：{store}（{region}）\n"+
   "申請日期：{applyDate}\n"+
-  "督導：{supervisor}\n"+
+  "聯絡電話：{phone}\n"+
   "申請品項：\n{items}\n"+
   "預估金額：{amount}\n"+
   "連結：{link}";
@@ -367,6 +381,7 @@ let cases=load();
 let itemRows=[];   // 申請表的品項列暫存
 let charts={};
 let fieldCfg=loadFieldCfgLocal();   // 申請欄位設定（依品項）
+let catalogLoaded=false, catalogLoadError=false;  // 雲端品項主檔是否載入完成（避免載入前/失敗時誤顯示已隱藏品項）
 
 function loadFieldCfgLocal(){try{return JSON.parse(localStorage.getItem(LS_FIELDS))||{}}catch(e){return{}}}
 function saveFieldCfgLocal(){try{localStorage.setItem(LS_FIELDS,JSON.stringify(fieldCfg))}catch(e){}}
@@ -390,17 +405,23 @@ async function syncFromCloud(){
   catch(e){ console.warn("雲端同步失敗，改用本機快取",e); toast("⚠ 雲端連線失敗，顯示本機資料"); }
 }
 async function loadCatalog(){
-  if(!API_URL)return;
-  try{
-    const list=await api("catalog");
-    if(Array.isArray(list)&&list.length){ CATALOG=list; renderItems(); }
-  }catch(e){ console.warn("品項主檔載入失敗，沿用內建清單",e); }
+  if(!API_URL){ catalogLoaded=true; return; }
+  for(let attempt=0;attempt<2;attempt++){
+    try{
+      const list=await api("catalog");
+      if(Array.isArray(list)&&list.length){ CATALOG=list; }
+      catalogLoaded=true; catalogLoadError=false; return;
+    }catch(e){ console.warn("品項主檔載入失敗（第"+(attempt+1)+"次）",e); }
+  }
+  // 兩次都失敗：標記錯誤，門市端下拉顯示「載入失敗」而非誤用內建（含已隱藏）清單
+  catalogLoadError=true;
+  toast("⚠ 文宣品項載入失敗，請檢查網路後重新整理頁面");
 }
 async function loadFieldConfig(){
   if(!API_URL)return;
   try{
     const fc=await api("fieldConfig");
-    if(fc&&typeof fc==="object"){ fieldCfg=fc; saveFieldCfgLocal(); renderItems(); }
+    if(fc&&typeof fc==="object"){ fieldCfg=fc; saveFieldCfgLocal(); }
   }catch(e){ console.warn("申請欄位設定載入失敗",e); }
 }
 async function loadOptions(){
@@ -412,7 +433,6 @@ async function loadOptions(){
       if(Array.isArray(opts.option)  &&opts.option.length)  OPTION_OPTS=opts.option;
       if(Array.isArray(opts.format)  &&opts.format.length)  FORMAT_OPTS=opts.format;
       if(Array.isArray(opts.delivery)&&opts.delivery.length)DELIVERY_OPTS=opts.delivery;
-      renderItems();
     }
   }catch(e){ console.warn("下拉選項載入失敗",e); }
 }
@@ -425,6 +445,8 @@ function esc(s){return String(s==null?"":s).replace(/</g,"&lt;").replace(/>/g,"&
 function today(){return new Date().toISOString().slice(0,10)}
 function fillSelect(el,arr,ph){el.innerHTML="<option value=''>"+(ph||"— 請選擇 —")+"</option>"+arr.map(s=>`<option>${esc(s)}</option>`).join("")}
 function fmt$(n){return "$"+Number(n||0).toLocaleString()}
+/* 從「2,000張 / 1組 / 1張」等字串取出數字；取不到回 NaN */
+function parseNum(s){const m=String(s==null?"":s).replace(/,/g,"").match(/\d+(\.\d+)?/);return m?parseFloat(m[0]):NaN;}
 
 /* ====== 初始化下拉 ====== */
 fillSelect(f_store,STORES,"— 選擇門市 —");
@@ -433,6 +455,10 @@ f_date.value=today();
 
 /* ====== 品項列（repeater）====== */
 function catalogOptions(sel){
+  // 雲端品項尚未載入完成時不顯示內建清單（內建清單未含隱藏狀態，會誤露未開放品項）
+  if(API_URL&&!catalogLoaded){
+    return "<option value=''>"+(catalogLoadError?"⚠ 品項載入失敗，請重新整理頁面":"載入文宣品項中…")+"</option>";
+  }
   return "<option value=''>— 選擇文宣品項 —</option>"+
     CATALOG.map((c,i)=>({c,i})).filter(o=>!o.c.hidden||o.i==sel)  // 隱藏品項不顯示（但已選取者仍保留）
       .map(({c,i})=>`<option value="${i}" ${sel==i?"selected":""}>${esc(c.name)}</option>`).join("");
@@ -447,12 +473,13 @@ function renderItems(){
     const ci=CATALOG.findIndex(c=>c.name===r.item);
     const c=ci>=0?CATALOG[ci]:null;
     const cfg=itemFieldCfg(r.item);
-    const quote=c?`<div class="quote-line">設計部基準報價：<b>${fmt$(c.price)}</b>（基準量 ${esc(c.baseQty||"—")}）　運費：${esc(c.ship)}　重新設計：${esc(c.design)}　印刷：${esc(c.print)}</div>`:"";
+    const baseN=c?parseNum(c.baseQty):NaN;
+    const quote=c?`<div class="quote-line">設計部基準報價：<b>${fmt$(c.price)}</b>（基準量 ${esc(c.baseQty||"—")}）　運費：${esc(c.ship)}　重新設計：${esc(c.design)}　印刷：${esc(c.print)}<br>本項預估（含稅）：<b id="amt_${i}">${fmt$(rowAmount(r))}</b><span class="small" style="color:var(--muted)"> ＝基準報價×（數量÷基準量）</span></div>`:"";
     const F={
       period:`<div><label>活動期間</label><input value="${esc(r.period)}" oninput="setRow(${i},'period',this.value)" placeholder="例：2026/06/01-06/30"></div>`,
       plan:`<div><label>設計／行銷方案</label>
           <select onchange="setRow(${i},'plan',this.value)">${["<option value=''>— 請選擇 —</option>"].concat(fO(PLAN_OPTS,cfg.plan).map(o=>`<option ${r.plan===o?"selected":""}>${esc(o)}</option>`)).join("")}</select></div>`,
-      qty:`<div><label>數量 <span class="req">*</span></label><input value="${esc(r.qty)}" oninput="setRow(${i},'qty',this.value)" placeholder="例：2000張 / 1張 / 1組"></div>`,
+      qty:`<div><label>數量 <span class="req">*</span></label><input value="${esc(r.qty)}" oninput="setRow(${i},'qty',this.value)" placeholder="${baseN>1?`需為 ${baseN} 的倍數`:"例：1張 / 1組"}">${baseN>1?`<div style="font-size:11px;color:var(--accent);margin-top:4px">⚠ 此品項需以 <b>${baseN}</b> 的倍數訂購（基準量 ${esc(c.baseQty)}）</div>`:""}</div>`,
       option:`<div><label>選配方式</label>
           <select onchange="setRow(${i},'option',this.value)">${fO(OPTION_OPTS,cfg.option).map(o=>`<option ${r.option===o?"selected":""}>${esc(o)}</option>`).join("")}</select></div>`,
       format:`<div><label>檔案格式</label>
@@ -587,10 +614,18 @@ function onItem(i,v){
   renderItems();
 }
 function setRow(i,k,v){itemRows[i][k]=v; if(k==='qty')renderTotal();}
-function rowAmount(r){const c=CATALOG.find(c=>c.name===r.item);return c?c.price:0;}
+/* 預估金額（含稅）＝基準報價 ×（填寫數量 ÷ 基準數量）；無法換算時退回基準報價 */
+function rowAmount(r){
+  const c=CATALOG.find(c=>c.name===r.item); if(!c)return 0;
+  const base=parseNum(c.baseQty), ord=parseNum(r.qty);
+  if(!base||isNaN(base)||isNaN(ord)) return c.price||0;
+  return Math.round((c.price||0)*ord/base);
+}
 function renderTotal(){
+  // 同步各品項小計（用 id 局部更新，避免重建表單導致輸入失焦）
+  itemRows.forEach((r,i)=>{const el=document.getElementById("amt_"+i);if(el)el.textContent=fmt$(rowAmount(r));});
   const sum=itemRows.reduce((a,r)=>a+rowAmount(r),0);
-  totalBar.innerHTML=`<span>預估金額合計：${fmt$(sum)}　<span class="small">（設計部基準報價總和，實際以設計部報價單為準）</span></span>
+  totalBar.innerHTML=`<span>預估金額合計（含稅）：${fmt$(sum)}　<span class="small">（依數量×設計部基準報價估算，實際以設計部報價單為準）</span></span>
     <span class="small">共 ${itemRows.filter(r=>r.item).length} 項</span>`;
 }
 addItemBtn.addEventListener("click",()=>addItem());
@@ -605,17 +640,27 @@ function genCaseNo(store,dstr){
 }
 submitBtn.addEventListener("click",async ()=>{
   const items=itemRows.filter(r=>r.item);
-  if(!f_region.value||!f_store.value||!f_date.value){toast("請填寫區域、門市、申請日期");return;}
+  if(!f_region.value||!f_store.value){toast("請填寫區域、門市");return;}
+  if(!f_phone.value.trim()){toast("請填寫聯絡電話（門市電話）");return;}
   if(!items.length){toast("請至少新增一個文宣品項");return;}
   for(const r of items){
     const rcfg=itemFieldCfg(r.item);
+    const cat=CATALOG.find(c=>c.name===r.item);
     if(!r.content){toast("每個品項需填寫申請文宣內容");return;}
     if(rcfg.qty&&!r.qty){toast("每個品項需填寫數量");return;}
-    if(!rcfg.qty&&!r.qty){const cat=CATALOG.find(c=>c.name===r.item);r.qty=cat?cat.baseQty:"";}
+    if(!rcfg.qty&&!r.qty){r.qty=cat?cat.baseQty:"";}
+    // 數量防呆：基準量>1 的品項，數量需為基準量的正整數倍
+    if(cat){
+      const base=parseNum(cat.baseQty), ord=parseNum(r.qty);
+      if(base>1){
+        if(isNaN(ord)||ord<=0){toast("「"+r.item+"」數量需填寫數字");return;}
+        if(ord%base!==0){toast("「"+r.item+"」數量需為 "+base+" 的倍數（基準量 "+cat.baseQty+"）");return;}
+      }
+    }
   }
   const c={
-    caseNo:genCaseNo(f_store.value,f_date.value),applyDate:f_date.value,dept:f_dept.value,region:f_region.value,store:f_store.value,
-    supervisor:f_super.value,phone:f_phone.value,
+    caseNo:genCaseNo(f_store.value,f_date.value),applyDate:f_date.value,dept:"",region:f_region.value,store:f_store.value,
+    supervisor:"",phone:f_phone.value,
     items:items.map(r=>({...r,unitPrice:rowAmount(r)})),
     pos:{name:"",item:"",time:"",ticket:"",type:"",online:"",note:""},
     amount:items.reduce((a,r)=>a+rowAmount(r),0),
@@ -642,7 +687,7 @@ submitBtn.addEventListener("click",async ()=>{
 });
 resetBtn.addEventListener("click",resetForm);
 function resetForm(){
-  f_dept.value="";f_region.value="";f_store.value="";f_super.value="";f_phone.value="";f_date.value=today();
+  f_region.value="";f_store.value="";f_phone.value="";f_date.value=today();
   itemRows=[blankRow()];renderItems();
 }
 
@@ -713,10 +758,8 @@ function openCase(idx){
     <h2>${esc(c.caseNo)}　<span class="tag s${c.status}">${STATUS[c.status]}</span></h2>
     <div class="kv">
       <div class="k">門市</div><div>${esc(c.store)}（${esc(c.region)}）</div>
-      <div class="k">部門</div><div>${esc(c.dept||"—")}</div>
       <div class="k">申請日期</div><div>${esc(c.applyDate)}</div>
-      <div class="k">營運督導</div><div>${esc(c.supervisor||"—")}</div>
-      <div class="k">電話</div><div>${esc(c.phone||"—")}</div>
+      <div class="k">聯絡電話</div><div>${esc(c.phone||"—")}</div>
       <div class="k">預估金額</div><div>${fmt$(c.amount)}</div>
     </div>
     <div class="sec-title"><span class="dot"></span>文宣輸出物（${c.items.length} 項）</div>
@@ -797,10 +840,10 @@ resetDash.addEventListener("click",()=>{d_from.value="";d_to.value="";renderDash
 
 /* ====== 匯出 CSV ====== */
 exportBtn.addEventListener("click",()=>{
-  const head=["案號","申請日","部門","區域","門市","營運督導","電話","品項","數量","設計方案","選配方式","檔案格式","運送方式","活動期間","申請文宣內容","預估金額","狀態","設計部報價","實際金額","處理備註"];
+  const head=["案號","申請日","區域","門市","聯絡電話","品項","數量","設計方案","選配方式","檔案格式","運送方式","活動期間","申請文宣內容","預估金額","狀態","設計部報價","實際金額","處理備註"];
   const rows=[];
   filtered().forEach(c=>c.items.forEach(it=>rows.push([
-    c.caseNo,c.applyDate,c.dept,c.region,c.store,c.supervisor,c.phone,
+    c.caseNo,c.applyDate,c.region,c.store,c.phone,
     it.item,it.qty,it.plan,it.option,it.format,it.delivery,it.period,it.content,
     it.unitPrice,STATUS[c.status],c.quote,c.actual,c.adminNote])));
   const csv="﻿"+[head,...rows].map(r=>r.map(x=>`"${String(x==null?"":x).replace(/"/g,'""')}"`).join(",")).join("\n");
@@ -1088,9 +1131,11 @@ if(!cases.length){
 /* ====== 啟動 ====== */
 applyRoleUI();
 renderList();
-loadCatalog();
-loadFieldConfig();
-loadOptions();
+(async function initData(){
+  // 三個雲端載入一起跑、全部結束後只渲染一次，避免載入中重建表單導致使用者輸入失焦／被重置
+  await Promise.allSettled([loadCatalog(),loadFieldConfig(),loadOptions()]);
+  renderItems();
+})();
 </script>
 </body>
 </html>
