@@ -609,7 +609,8 @@ function saveFieldCfgModal(){
   else{toast("已儲存（本機）");}
 }
 function onItem(i,v){
-  const c=CATALOG[+v];
+  // 注意：v 為空字串（選到「— 選擇文宣品項 —」）時，+v 會變成 0 而誤抓 CATALOG[0]（可能是隱藏品項），故先判斷空值
+  const c=(v===""||v==null)?null:CATALOG[+v];
   itemRows[i].item=c?c.name:"";
   if(c){ if(!itemRows[i].qty)itemRows[i].qty=c.baseQty; itemRows[i].format=c.format||itemRows[i].format; }
   renderItems();
