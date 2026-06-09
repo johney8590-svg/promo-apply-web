@@ -1235,49 +1235,6 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape"&&modalBg.classList.c
 let toastT;function toast(m){const t=document.getElementById("toast");t.textContent=m;t.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove("show"),2600)}
 function refreshAll(){renderList();if(document.getElementById("view-dashboard").classList.contains("active"))renderDash()}
 
-/* ====== 示範資料（首次） — 來自 5 份實際申請單 ====== */
-if(!cases.length){
-  const seed=[
-    {applyDate:"2026-06-03",dept:"茶飲營運部",region:"桃園",store:"中壢中原",supervisor:"劉靜蓮 Jill",phone:"03-438-0098",status:2,
-      items:[{item:"A5DM(菜單)21X14.85CM 150磅銅板紙",qty:"2,000張",plan:"季節新品A",option:"自費選購",format:"印刷稿",delivery:"宅配",period:"2026/06",
-        content:"自外送門檻版本\n外送低消門檻：\n1 公里內 滿 3 杯＋$10 品牌四杯保冷袋\n3 公里內 滿 500 元\n3.1-5 公里 滿 1,000 元\n5 公里以上 歡迎來電洽詢"}],
-      quote:"1,220 元 / 2000張",actual:"",adminNote:"6/4 已轉設計部"},
-    {applyDate:"2026-06-03",dept:"茶飲營運部",region:"台中",store:"台中大里",supervisor:"",phone:"",status:1,
-      items:[{item:"A5DM(菜單)21X14.85CM 150磅銅板紙",qty:"2000張",plan:"",option:"自費選購",format:"印刷稿",delivery:"宅配",period:"",
-        content:"1.使用UG線上點餐，於社群留言即可享有外送服務\n(外送門檻：1公里內滿$100｜1.1-2公里滿$300｜太平、大里工業區滿$500｜霧峰、太平、烏日區滿$800)\n2.若有任何疑問，歡迎於社群留言詢問，小幫手將誠摯為您服務"}],
-      quote:"",actual:"",adminNote:""},
-    {applyDate:"2026-05-29",dept:"茶飲營運部",region:"台中",store:"台中東海",supervisor:"",phone:"",status:0,
-      items:[{item:"A5DM(菜單)21X14.85CM 150磅銅板紙",qty:"2000張",plan:"",option:"自費選購",format:"印刷稿",delivery:"宅配",period:"",
-        content:"自外送版"}],
-      quote:"",actual:"",adminNote:""},
-    {applyDate:"2026-05-28",dept:"蘆洲光華店",region:"新北區",store:"蘆洲光華",supervisor:"Benson",phone:"02-2288-8800",status:4,
-      items:[{item:"A5DM(菜單)21X14.85CM 150磅銅板紙",qty:"2000張",plan:"",option:"自費選購",format:"印刷稿",delivery:"宅配",period:"",
-        content:"A5DM\n【自外送門檻】\n500公尺內,滿$300\n0.6-2公里內,滿$600\n2.1-5公里內,滿$1,200"}],
-      quote:"1,220 元",actual:"1,320 元（含運）",adminNote:"已出貨並完成結案"},
-    {applyDate:"2026-05-20",dept:"茶飲營運部",region:"台北",store:"忠孝敦化",supervisor:"",phone:"",status:3,
-      items:[{item:"告五人-人型立牌-A款",qty:"1張",plan:"方案A 買一送一(品項先選為買)",option:"自費選購",format:"電子稿",delivery:"宅配",period:"2026/06 告五人聯名",
-        content:"告五人聯名活動人型立牌，搭配買一送一主視覺"},
-        {item:"X展架海報60X180CM",qty:"1張",plan:"方案A 買一送一(品項先選為買)",option:"總公司贈送",format:"印刷稿",delivery:"宅配",period:"2026/06",
-        content:"門口 X 展架，告五人聯名主視覺"}],
-      quote:"立牌1,780＋展架470",actual:"",adminNote:"6/2 設計中"}
-  ];
-  cases=seed.map(s=>({
-    caseNo:"",supervisor:s.supervisor||"",phone:s.phone||"",
-    pos:{name:"",item:"",time:"",ticket:"",type:"",online:"",note:""},
-    ...s,
-    items:s.items.map(it=>{const c=CATALOG.find(c=>c.name===it.item);return {...it,unitPrice:c?c.price:0};}),
-    amount:s.items.reduce((a,it)=>{const c=CATALOG.find(c=>c.name===it.item);return a+(c?c.price:0)},0),
-    createdAt:new Date(s.applyDate+"T09:00:00").toISOString()
-  }));
-  // 產生案號
-  const counter={};
-  cases.slice().sort((a,b)=>a.applyDate<b.applyDate?-1:1).forEach(c=>{
-    const base=c.applyDate.replaceAll("-",""),key=c.store+base;counter[key]=(counter[key]||0)+1;
-    c.caseNo="PR"+c.store+base+pad3(counter[key]);
-  });
-  save();
-}
-
 /* ====== 啟動 ====== */
 applyRoleUI();
 renderList();
