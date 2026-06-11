@@ -374,6 +374,10 @@ const DEFAULT_LINE_TPL=
 const API_URL  ="https://script.google.com/macros/s/AKfycbwn-hiS6mPpxw3BmZCqTmH211g0AwI7KW7xiBMzWyYXdymk5eBYCeL3eRZq6kz1u9yrRw/exec";
 const API_TOKEN="pr_kQ7mZ2xV9tLpA4nBwR8sYcEf";
 // 管理密碼由後端 ADMIN_PASSWORD 驗證，不放前端
+/* 管理入口閘門：唯有網址帶 ?m=<金鑰> 才顯示「管理（總部）」入口；門市端乾淨網址完全看不到管理入口。
+   注意：這是「降低曝光」（前端 JS 公開可讀），真正的鎖仍是後端的管理密碼，務必把預設密碼改強。*/
+const ADMIN_GATE_KEY="UGmgr-7Q2x9";
+const ADMIN_ENTRY=new URLSearchParams(location.search).get("m")===ADMIN_GATE_KEY;
 
 /* ====== 狀態 ====== */
 let role="store";
@@ -1236,6 +1240,11 @@ let toastT;function toast(m){const t=document.getElementById("toast");t.textCont
 function refreshAll(){renderList();if(document.getElementById("view-dashboard").classList.contains("active"))renderDash()}
 
 /* ====== 啟動 ====== */
+// 管理入口閘門：門市端網址（未帶 ?m=金鑰）完全隱藏「管理（總部）」切換，且調整說明文字不提管理入口
+if(!ADMIN_ENTRY){
+  roleSwitch.style.display="none";
+  demoBanner.textContent="　門市夥伴：填寫「申請資訊」與「文宣輸出物」，完成電子簽名與匯款明細上傳後即可送出；案件清單可查看自己的申請進度。";
+}
 applyRoleUI();
 renderList();
 (async function initData(){
