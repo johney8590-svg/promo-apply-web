@@ -152,7 +152,7 @@
   <button data-tab="dashboard">儀表板</button>
   <button data-tab="fields">申請欄位設定</button>
   <button data-tab="optmgr">品項/選項管理</button>
-  <button data-tab="line">LINE 通知設定</button>
+  <button data-tab="line">通知設定</button>
 </nav>
 
 <main>
@@ -299,6 +299,32 @@
       <div class="btn-row">
         <button class="btn" id="saveLine" type="button">儲存設定</button>
         <button class="btn" style="background:#06c755" id="testLine" type="button">發送測試訊息</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Email 通知（狀態轉「設計中」自動寄信）</h2>
+      <p class="hint">在「案件清單」把案件處理進度改成<b>設計中</b>並儲存時，系統會由雲端後端自動寄一封 Email 給下列收件信箱（通知設計／相關部門接手）。只在「轉入」設計中時寄一次，重複儲存不會重寄。</p>
+      <div class="pill-note">設定值存在雲端後端（全門市共用）。寄信由 Google Apps Script 帳號（系統擁有者 Gmail）代發，首次啟用需在 Apps Script 編輯器執行一次 <code>authorizeEmail</code> 授權寄信權限。</div>
+      <div class="grid">
+        <div class="full">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="email_enabled" style="width:auto;height:16px">
+            啟用：狀態轉為「設計中」時自動寄信
+          </label>
+        </div>
+        <div class="full"><label>收件信箱（相關部門，多個用逗號分隔）<span class="req">*</span></label>
+          <input type="text" id="email_to" placeholder="例：design@company.com, ops@company.com"></div>
+        <div class="full"><label>主旨範本</label>
+          <input type="text" id="email_subject" placeholder="【文宣申請】{caseNo} {store} 已進入設計中"></div>
+        <div class="full"><label>內容範本</label>
+          <textarea id="email_tpl" style="min-height:200px;font-family:inherit"></textarea>
+          <div class="pill-note" style="margin-top:8px">可用代入欄位：<code>{caseNo}</code> 案號 · <code>{store}</code> 門市 · <code>{region}</code> 區域 · <code>{applyDate}</code> 申請日期 · <code>{phone}</code> 聯絡電話 · <code>{items}</code> 申請品項摘要 · <code>{amount}</code> 預估金額 · <code>{quote}</code> 設計部報價 · <code>{adminNote}</code> 處理備註 · <code>{status}</code> 狀態 · <code>{link}</code> 連結。</div>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn" id="saveEmail" type="button">儲存設定</button>
+        <button class="btn sec" id="testEmail" type="button">發送測試信</button>
       </div>
     </div>
   </section>
@@ -1035,6 +1061,53 @@ testLine.addEventListener("click",async ()=>{
   }else{ toast("尚未設定雲端後端，無法發送"); }
 });
 
+/* ====== Email 通知設定（狀態轉設計中自動寄信；設定存雲端）====== */
+const DEFAULT_EMAIL_SUBJECT="【文宣申請】{caseNo} {store} 已進入設計中";
+const DEFAULT_EMAIL_TPL=
+  "文宣申請案件已進入「設計中」，請設計／相關部門接手：\n\n"+
+  "案號：{caseNo}\n門市：{store}（{region}）\n申請日期：{applyDate}\n"+
+  "聯絡電話：{phone}\n申請品項：\n{items}\n預估金額：{amount}\n"+
+  "設計部報價：{quote}\n處理備註：{adminNote}\n連結：{link}";
+let emailCfgLoaded=false;
+async function loadEmailCfg(){
+  if(!API_URL||role!=="admin"||emailCfgLoaded)return;
+  try{
+    const c=await api("getEmail");
+    if(c&&typeof c==="object"){
+      email_enabled.checked=!!c.enabled;
+      email_to.value=c.to||"";
+      email_subject.value=c.subject||DEFAULT_EMAIL_SUBJECT;
+      email_tpl.value=(c.template!==undefined&&c.template!=="")?c.template:DEFAULT_EMAIL_TPL;
+      emailCfgLoaded=true;
+    }
+  }catch(e){ console.warn("Email 設定載入失敗",e); }
+}
+function emailFormCfg(){
+  return {enabled:email_enabled.checked,to:email_to.value.trim(),
+    subject:email_subject.value.trim()||DEFAULT_EMAIL_SUBJECT,template:email_tpl.value};
+}
+saveEmail.addEventListener("click",async()=>{
+  const cfg=emailFormCfg();
+  if(cfg.enabled&&!cfg.to){toast("已啟用，請先填寫收件信箱");return;}
+  if(!API_URL){toast("尚未設定雲端後端，無法儲存");return;}
+  saveEmail.disabled=true;
+  try{ await api("saveEmail",{email:cfg}); toast("Email 通知設定已儲存（雲端，全門市共用）"); }
+  catch(e){ toast("⚠ 雲端儲存失敗："+e.message); }
+  finally{ saveEmail.disabled=false; }
+});
+testEmail.addEventListener("click",async()=>{
+  const cfg=emailFormCfg();
+  if(!cfg.to){toast("請先填寫收件信箱");return;}
+  if(!API_URL){toast("尚未設定雲端後端，無法發送");return;}
+  testEmail.disabled=true;
+  try{
+    const r=await api("emailTest",{email:cfg});
+    if(r&&r.ok)toast("✅ 已寄出測試信至："+r.to);
+    else toast("⚠ 測試失敗："+String((r&&r.detail)||"請確認收件信箱"));
+  }catch(e){ toast("⚠ 測試失敗："+e.message+"（首次需在 Apps Script 執行 authorizeEmail 授權）"); }
+  finally{ testEmail.disabled=false; }
+});
+
 /* ====== 管理密碼設定 ====== */
 let adminPassList=[];
 function maskPw(pw){const s=String(pw);return s.length<=2?s:s.slice(0,2)+"●".repeat(Math.min(s.length-2,6));}
@@ -1228,6 +1301,7 @@ nav.querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{
   if(b.dataset.tab==="dashboard")renderDash();
   if(b.dataset.tab==="list")renderList();
   if(b.dataset.tab==="fields")renderFieldTable();
+  if(b.dataset.tab==="line")loadEmailCfg();
   if(b.dataset.tab==="optmgr"){catalogEdit=CATALOG.map(c=>({...c}));initOptEdit();renderCatalogEditor();renderOptionEditor();loadPasswordList();}
 }));
 
