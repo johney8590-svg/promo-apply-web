@@ -1,6 +1,6 @@
 /* ====== 基礎資料 ====== */
 /* 門市清單依地理區域（北→南）分組，方便門市尋找；同時作為「區域」自動帶入的來源 */
-const STORE_GROUPS=[
+let STORE_GROUPS=[
   ["基隆",["基隆廟口"]],
   ["台北",["台北大安","台北大巨蛋","台北石牌","台北萬芳","台北西湖","中山南西","信義永吉","信義虎林","信義通化","忠孝敦化","士林捷運","站前南陽"]],
   ["新北",["三重正義","中和南勢角","板橋中正","新店民權","新莊幸福","永和永安市場","汐止中興","林口長庚","蘆洲光華"]],
@@ -16,8 +16,13 @@ const STORE_GROUPS=[
   ["高雄",["高雄巨蛋","高雄瑞隆","高雄美麗島"]],
   ["宜蘭",["宜蘭礁溪","羅東民權"]]
 ];
-const STORES=STORE_GROUPS.reduce((a,g)=>a.concat(g[1]),[]);
-const STORE_REGION={}; STORE_GROUPS.forEach(g=>g[1].forEach(s=>STORE_REGION[s]=g[0]));
+let STORES=[]; let STORE_REGION={};
+/* 由 STORE_GROUPS 重算扁平門市清單與「門市→區域」對照（雲端門市清單載入後也會呼叫）*/
+function rebuildStores(){
+  STORES=STORE_GROUPS.reduce((a,g)=>a.concat(g[1]),[]);
+  STORE_REGION={}; STORE_GROUPS.forEach(g=>g[1].forEach(s=>STORE_REGION[s]=g[0]));
+}
+rebuildStores();
 
 /* 文宣品項主檔（= Excel「設計清單」分頁；之後可改由後端試算表同步）。
    price 為設計部基準報價、ship 運費、design 重新設計時程、print 印刷時程、baseQty 基準數量、format 預設檔案格式 */
@@ -130,6 +135,18 @@ async function loadOptions(){
       if(Array.isArray(opts.delivery)&&opts.delivery.length)DELIVERY_OPTS=opts.delivery;
     }
   }catch(e){ console.warn("下拉選項載入失敗",e); }
+}
+async function loadStores(){
+  if(!API_URL)return;
+  try{
+    const list=await api("stores");
+    if(Array.isArray(list)&&list.length){ STORE_GROUPS=list; rebuildStores(); refillStoreSelects(); }
+  }catch(e){ console.warn("門市清單載入失敗",e); }
+}
+/* 重新填入門市下拉（雲端門市清單載入或管理頁存檔後），盡量保留目前選取值 */
+function refillStoreSelects(){
+  if(typeof f_store!=="undefined"){const v=f_store.value;fillSelect(f_store,STORES,"— 選擇門市 —");if(STORES.includes(v))f_store.value=v;}
+  if(typeof q_store!=="undefined"){const v=q_store.value;fillSelect(q_store,STORES,"全部門市");q_store.value=STORES.includes(v)?v:"";}
 }
 
 function load(){try{return JSON.parse(localStorage.getItem(LS_KEY))||[]}catch(e){return[]}}
@@ -940,6 +957,75 @@ saveOptsBtn.addEventListener("click",async()=>{
   }else{toast("選項設定已儲存（本機）");}
 });
 
+/* ====== 門市清單管理（管理頁；卡片以 JS 注入 view-optmgr，門市/管理兩頁共用 app.js）====== */
+let storeEdit=[];
+function initStoreEdit(){ storeEdit=STORE_GROUPS.map(g=>[g[0],[...g[1]]]); }
+function ensureStoreMgrCard(){
+  if(document.getElementById("storeMgrCard"))return;
+  const view=document.getElementById("view-optmgr"); if(!view)return;
+  const card=document.createElement("div");
+  card.className="card"; card.id="storeMgrCard";
+  card.innerHTML=`<h2>門市清單管理</h2>
+    <p class="hint">新增／調整門市與所屬區域（區域用於申請時自動帶入）。× 刪除、填入後按「＋」新增；改完按「儲存門市清單」全門市共用，申請表的門市下拉即時更新。</p>
+    <div id="storeEditBody"></div>
+    <div class="btn-row" style="margin-top:6px">
+      <button class="btn sec sm" type="button" onclick="storeAddRegion()">＋ 新增區域</button>
+      <button class="btn" type="button" onclick="saveStores()">儲存門市清單</button>
+    </div>`;
+  view.appendChild(card);
+}
+/* 結構變更前，先把畫面上各區域名稱輸入框的值同步回 storeEdit，避免未失焦的編輯遺失 */
+function storeSyncRegions(){
+  document.querySelectorAll(".st-region").forEach(el=>{const i=+el.dataset.i;if(i<storeEdit.length)storeEdit[i][0]=el.value;});
+}
+function renderStoreEditor(){
+  const body=document.getElementById("storeEditBody"); if(!body)return;
+  body.innerHTML=storeEdit.map((g,i)=>`
+    <div style="border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:12px;background:#fafbfa">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+        <span style="font-size:12px;color:var(--muted);white-space:nowrap">區域</span>
+        <input class="st-region" data-i="${i}" value="${esc(g[0])}" onchange="storeSetRegion(${i},this.value)" placeholder="區域名稱" style="flex:1;max-width:160px;padding:7px 10px;border:1px solid #cdd5d0;border-radius:7px;font-size:13px">
+        <span style="font-size:11px;color:var(--muted)">（${g[1].length} 間）</span>
+        <button class="btn danger sm" type="button" onclick="storeRmRegion(${i})" style="margin-left:auto">刪除區域</button>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
+        ${g[1].map((s,j)=>`<span style="background:#eef5f0;border:1px solid #b8d4c0;border-radius:20px;padding:4px 12px;font-size:13px;display:inline-flex;align-items:center;gap:6px">${esc(s)}<button type="button" onclick="storeRmStore(${i},${j})" style="background:none;border:none;cursor:pointer;color:#c0392b;font-size:15px;padding:0;line-height:1;font-weight:700">×</button></span>`).join('')||'<span style="font-size:12px;color:var(--muted)">此區域尚無門市，請於下方新增</span>'}
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="storeIn_${i}" placeholder="新增門市名稱…" onkeydown="if(event.key==='Enter'){event.preventDefault();storeAddStore(${i})}" style="flex:1;padding:7px 11px;border:1px solid #cdd5d0;border-radius:7px;font-size:13px">
+        <button class="btn sec sm" type="button" onclick="storeAddStore(${i})">＋ 新增門市</button>
+      </div>
+    </div>`).join("")||'<p class="hint">尚無區域，請按「＋ 新增區域」。</p>';
+}
+function storeSetRegion(i,v){ if(storeEdit[i])storeEdit[i][0]=v; }
+function storeAddRegion(){ storeSyncRegions(); storeEdit.push(["新區域",[]]); renderStoreEditor(); }
+function storeRmRegion(i){
+  storeSyncRegions();
+  if(!confirm('確定刪除「'+(storeEdit[i][0]||'此')+'」區域及其所有門市？'))return;
+  storeEdit.splice(i,1); renderStoreEditor();
+}
+function storeAddStore(i){
+  const inp=document.getElementById('storeIn_'+i);
+  const v=(inp?inp.value:'').trim(); if(!v)return;
+  storeSyncRegions();
+  if(storeEdit.some(g=>g[1].includes(v))){toast('門市「'+v+'」已存在');return;}
+  storeEdit[i][1].push(v); renderStoreEditor();
+  const ni=document.getElementById('storeIn_'+i); if(ni)ni.focus();
+}
+function storeRmStore(i,j){ storeSyncRegions(); storeEdit[i][1].splice(j,1); renderStoreEditor(); }
+async function saveStores(){
+  storeSyncRegions();
+  const list=storeEdit.filter(g=>String(g[0]||'').trim()).map(g=>[String(g[0]).trim(),g[1].filter(Boolean)]);
+  const flat=list.reduce((a,g)=>a.concat(g[1]),[]);
+  if(!flat.length){toast('請至少新增一個區域與門市');return;}
+  STORE_GROUPS=list; rebuildStores(); refillStoreSelects();
+  initStoreEdit(); renderStoreEditor();
+  if(API_URL){
+    try{await api("saveStores",{stores:STORE_GROUPS});toast("門市清單已儲存（雲端，全門市共用）");}
+    catch(e){toast("⚠ 儲存失敗："+e.message);}
+  }else{toast("門市清單已儲存（本機）");}
+}
+
 /* ====== 申請欄位設定 事件 ====== */
 fcAllOn.addEventListener("click",()=>{
   CATALOG.forEach(c=>{fieldCfg[c.name]={period:true,plan:true,qty:true,option:true,format:true,delivery:true};});
@@ -1002,7 +1088,7 @@ nav.querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{
   if(b.dataset.tab==="list")renderList();
   if(b.dataset.tab==="fields")renderFieldTable();
   if(b.dataset.tab==="line")loadEmailCfg();
-  if(b.dataset.tab==="optmgr"){catalogEdit=CATALOG.map(c=>({...c}));initOptEdit();renderCatalogEditor();renderOptionEditor();loadPasswordList();}
+  if(b.dataset.tab==="optmgr"){catalogEdit=CATALOG.map(c=>({...c}));initOptEdit();renderCatalogEditor();renderOptionEditor();loadPasswordList();ensureStoreMgrCard();initStoreEdit();renderStoreEditor();}
 }));
 
 /* ====== 工具 ====== */
@@ -1026,6 +1112,6 @@ applyRoleUI();
 renderList();
 (async function initData(){
   // 三個雲端載入一起跑、全部結束後只渲染一次，避免載入中重建表單導致使用者輸入失焦／被重置
-  await Promise.allSettled([loadCatalog(),loadFieldConfig(),loadOptions()]);
+  await Promise.allSettled([loadCatalog(),loadFieldConfig(),loadOptions(),loadStores()]);
   renderItems();
 })();
