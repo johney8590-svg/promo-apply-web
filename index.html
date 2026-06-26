@@ -71,9 +71,7 @@
   .tag{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:700;white-space:nowrap}
   .tag.s0{background:#fdf0d5;color:#9a6700}      /* 待處理 */
   .tag.s1{background:#e0ecfa;color:#1f5fa6}      /* 設計中 */
-  .tag.s2{background:#e7e0fa;color:#5b3da6}      /* 印刷中 */
-  .tag.s3{background:#d9eef9;color:#1a6e8e}      /* 已出貨 */
-  .tag.s4{background:#d8f0e3;color:#1e6e44}      /* 已完成 */
+  .tag.s2{background:#d8f0e3;color:#1e6e44}      /* 已印刷（完成）*/
   .stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:18px}
   .stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
   .stat .n{font-size:30px;font-weight:800;color:var(--primary)}
@@ -191,8 +189,7 @@
       <div class="filter-bar">
         <div><label>搜尋</label><input type="text" id="q_text" placeholder="案號 / 門市 / 品項 / 內容"></div>
         <div><label>狀態</label><select id="q_status"><option value="">全部</option>
-          <option value="0">待處理</option><option value="1">設計中</option><option value="2">印刷中</option>
-          <option value="3">已出貨</option><option value="4">已完成</option></select></div>
+          <option value="0">待處理</option><option value="1">設計中</option><option value="2">已印刷</option></select></div>
         <div><label>門市</label><select id="q_store"><option value="">全部門市</option></select></div>
         <div style="flex:0"><button class="btn sec sm" id="exportBtn" style="margin-bottom:1px">匯出 CSV</button></div>
       </div>
@@ -380,7 +377,7 @@ let PLAN_OPTS=["方案A 買一送一(品項先選為買)","方案B 第二杯半�
 let OPTION_OPTS=["自費選購","總公司贈送"];
 let FORMAT_OPTS=["印刷稿","電子稿","給檔"];
 let DELIVERY_OPTS=["宅配","親送","給檔"];
-const STATUS=["待處理","設計中","印刷中","已出貨","已完成"];
+const STATUS=["待處理","設計中","已印刷"];
 /* 可由「申請欄位設定」開關的文宣品項欄位（品項、申請文宣內容一律顯示）*/
 const FIELD_DEFS=[["period","活動期間"],["plan","設計/行銷方案"],["qty","數量"],["option","選配方式"],["format","檔案格式"],["delivery","運送方式"]];
 const LS_KEY="promo_apply_cases_v1", LS_LINE="promo_apply_line_v1", LS_FIELDS="promo_apply_fields_v1";
@@ -917,8 +914,11 @@ function openCase(idx){
     <div class="sec-title"><span class="dot"></span>處理進度（管理）</div>
     ${adminFields}
     ${role==="admin"?`<div class="btn-row"><button class="btn" onclick="saveCase(${idx})">儲存處理結果</button><button class="btn danger" onclick="delCase(${idx})">刪除案件</button></div>`
-      :`<p class="hint" style="margin-top:10px">切換為「管理（總部）」角色才能更新處理進度。</p>`}`);
+      :`<p class="hint" style="margin-top:10px">切換為「管理（總部）」角色才能更新處理進度。</p>`}
+    <div class="sec-title" style="margin-top:18px"><span class="dot"></span>處理進度歷程</div>
+    <div id="historyWrap"></div>`);
   loadAttachments(c);
+  loadHistory(c);
 }
 /* 載入並顯示案件附件（門市上傳圖檔／電子簽名）；getAttachments 為管理動作 */
 async function loadAttachments(c){
@@ -948,6 +948,38 @@ async function loadAttachments(c){
     }
     wrap.innerHTML=html;   // 沒有附件就清空（不顯示區塊）
   }catch(e){ console.warn("附件載入失敗",e); wrap.innerHTML=`<div class="hint" style="color:var(--danger)">附件載入失敗</div>`; }
+}
+/* 處理進度歷程（每次狀態變更一筆，時間軸顯示）；caseHistory 為管理動作 */
+function fmtTime(iso){
+  if(!iso)return"";
+  try{const d=new Date(iso);if(isNaN(d))return esc(iso);
+    const p=n=>String(n).padStart(2,"0");
+    return `${d.getFullYear()}/${p(d.getMonth()+1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }catch(e){return esc(iso);}
+}
+async function loadHistory(c){
+  const wrap=document.getElementById("historyWrap");
+  if(!wrap)return;
+  if(!API_URL||role!=="admin"){wrap.innerHTML=`<div class="hint">切換為「管理（總部）」角色可檢視完整進度歷程。</div>`;return;}
+  wrap.innerHTML=`<div class="hint" style="margin:6px 0">載入歷程中…</div>`;
+  try{
+    const hist=await api("caseHistory",{caseNo:c.caseNo});
+    if(!hist||!hist.length){wrap.innerHTML=`<div class="hint">尚無歷程記錄（此案件在歷程功能上線前建立）。</div>`;return;}
+    wrap.innerHTML=`<div style="padding-left:4px">`+
+      hist.map((h,i)=>{
+        const last=i===hist.length-1;
+        return `<div style="display:flex;gap:10px;align-items:flex-start">
+          <div style="display:flex;flex-direction:column;align-items:center;align-self:stretch">
+            <div style="width:11px;height:11px;border-radius:50%;background:${last?'var(--primary)':'#b8d4c0'};margin-top:5px;flex:0 0 auto"></div>
+            ${!last?'<div style="width:2px;flex:1;min-height:20px;background:#dde5e0"></div>':''}
+          </div>
+          <div style="padding-bottom:10px">
+            <span class="tag s${h.status}">${esc(h.label||STATUS[h.status]||'')}</span>
+            <span style="font-size:12px;color:var(--muted);margin-left:8px">${fmtTime(h.at)}</span>
+          </div>
+        </div>`;
+      }).join("")+`</div>`;
+  }catch(e){ console.warn("歷程載入失敗",e); wrap.innerHTML=`<div class="hint" style="color:var(--danger)">歷程載入失敗</div>`; }
 }
 async function saveCase(idx){
   const c=cases[idx];
@@ -981,13 +1013,13 @@ async function delCase(idx){
 function dashData(){const f=d_from.value,t=d_to.value;return cases.filter(c=>(!f||c.applyDate>=f)&&(!t||c.applyDate<=t));}
 function renderDash(){
   const data=dashData();
-  const done=data.filter(c=>c.status===4).length;
+  const done=data.filter(c=>c.status===2).length;
   const pend=data.filter(c=>c.status===0).length;
   const amt=data.reduce((a,c)=>a+(c.amount||0),0);
   statRow.innerHTML=`
     <div class="stat"><div class="n">${data.length}</div><div class="l">申請案件總數</div></div>
     <div class="stat warn"><div class="n">${pend}</div><div class="l">待處理</div></div>
-    <div class="stat ok"><div class="n">${done}</div><div class="l">已完成</div></div>
+    <div class="stat ok"><div class="n">${done}</div><div class="l">已印刷</div></div>
     <div class="stat"><div class="n">${new Set(data.map(c=>c.store)).size}</div><div class="l">申請門市數</div></div>
     <div class="stat accent"><div class="n">${fmt$(amt)}</div><div class="l">預估金額合計</div></div>`;
   drawCharts(data);
