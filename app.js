@@ -54,6 +54,7 @@ const STATUS=["待處理","設計中","已印刷"];
 const FIELD_DEFS=[["period","活動期間"],["plan","設計/行銷方案"],["qty","數量"],["option","選配方式"],["format","檔案格式"],["delivery","運送方式"]];
 const LS_KEY="promo_apply_cases_v1", LS_LINE="promo_apply_line_v1", LS_FIELDS="promo_apply_fields_v1";
 const PUBLIC_SITE="https://promo-apply-web.johney8590.workers.dev/";
+const ADMIN_SITE="https://promo-apply-web.johney8590.workers.dev/admin.html";  // 通知連結導向管理頁，方便點開直接改狀態
 const DEFAULT_LINE_TPL=
   "【門市文宣申請通知】\n"+
   "案號：{caseNo}\n"+
@@ -749,9 +750,23 @@ exportBtn.addEventListener("click",()=>{
 /* ====== LINE 設定 ====== */
 (function(){const c=getLineCfg();
   line_token.value=c.token||"";line_to.value=c.to||"";
-  line_link.value=c.link||PUBLIC_SITE;
+  line_link.value=c.link||ADMIN_SITE;
   line_tpl.value=(c.template!==undefined&&c.template!=="")?c.template:DEFAULT_LINE_TPL;
 })();
+/* 進「通知設定」時從雲端載入現值（不含 token），避免瀏覽器 localStorage 舊值覆蓋雲端設定 */
+let lineCfgLoaded=false;
+async function loadLineCfg(){
+  if(!API_URL||role!=="admin"||lineCfgLoaded)return;
+  try{
+    const c=await api("getLine");
+    if(c&&typeof c==="object"){
+      line_to.value=c.to||"";
+      line_link.value=c.link||ADMIN_SITE;
+      if(c.template!==undefined&&c.template!=="")line_tpl.value=c.template;
+      lineCfgLoaded=true;
+    }
+  }catch(e){ console.warn("LINE 設定載入失敗",e); }
+}
 saveLine.addEventListener("click",async ()=>{
   const cfg={token:line_token.value.trim(),to:line_to.value.trim(),link:line_link.value.trim(),template:line_tpl.value};
   setLineCfg(cfg);
@@ -1087,7 +1102,7 @@ nav.querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{
   if(b.dataset.tab==="dashboard")renderDash();
   if(b.dataset.tab==="list")renderList();
   if(b.dataset.tab==="fields")renderFieldTable();
-  if(b.dataset.tab==="line")loadEmailCfg();
+  if(b.dataset.tab==="line"){loadLineCfg();loadEmailCfg();}
   if(b.dataset.tab==="optmgr"){catalogEdit=CATALOG.map(c=>({...c}));initOptEdit();renderCatalogEditor();renderOptionEditor();loadPasswordList();ensureStoreMgrCard();initStoreEdit();renderStoreEditor();}
 }));
 
