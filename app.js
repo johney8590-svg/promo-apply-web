@@ -1089,6 +1089,15 @@ async function submitAdminLogin(){
     catch(e){ adminPass="";if(er)er.style.display="block"; }
   }else{ setRole("admin");closeModal(); } // 純本機模式無法驗證，直接切換
 }
+/* 管理密碼已移除：admin.html 開啟直接進管理模式（後端亦已取消 adminPass 驗證）*/
+async function enterAdminDirect(){
+  if(API_URL){
+    try{ cases=await api("list"); save(); }
+    catch(e){ console.warn("管理資料載入失敗",e); toast("⚠ 載入失敗："+e.message); }
+  }
+  setRole("admin"); refreshAll();
+  const lt=document.querySelector('[data-tab="list"]'); if(lt)lt.click();
+}
 roleSwitch.querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{
   const target=b.dataset.role;
   if(target==="admin"&&role!=="admin"){openAdminLogin();return;}
@@ -1103,7 +1112,9 @@ nav.querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{
   if(b.dataset.tab==="list")renderList();
   if(b.dataset.tab==="fields")renderFieldTable();
   if(b.dataset.tab==="line"){loadLineCfg();loadEmailCfg();}
-  if(b.dataset.tab==="optmgr"){catalogEdit=CATALOG.map(c=>({...c}));initOptEdit();renderCatalogEditor();renderOptionEditor();loadPasswordList();ensureStoreMgrCard();initStoreEdit();renderStoreEditor();}
+  if(b.dataset.tab==="optmgr"){catalogEdit=CATALOG.map(c=>({...c}));initOptEdit();renderCatalogEditor();renderOptionEditor();ensureStoreMgrCard();initStoreEdit();renderStoreEditor();
+    // 管理密碼已移除：隱藏「管理密碼設定」卡片
+    const pw=document.getElementById("pwListWrap"); if(pw&&pw.closest(".card"))pw.closest(".card").style.display="none";}
 }));
 
 /* ====== 工具 ====== */
@@ -1118,8 +1129,8 @@ function refreshAll(){renderList();if(document.getElementById("view-dashboard").
 // 門市頁 / 管理頁分家：兩頁都不用角色切換鈕。管理頁開啟即跳登入；門市頁完全沒有管理入口。
 roleSwitch.style.display="none";
 if(PAGE_MODE==="admin"){
-  demoBanner.textContent="　總部管理頁：請輸入管理密碼登入後操作（門市申請請改用門市申請頁）。";
-  openAdminLogin();
+  demoBanner.textContent="　總部管理頁：可直接檢視全門市案件、更新進度與各項設定（門市申請請改用門市申請頁）。";
+  enterAdminDirect();
 }else{
   demoBanner.textContent="　門市夥伴：填寫「申請資訊」與「文宣輸出物」，完成電子簽名與匯款明細上傳後即可送出；案件清單可查看自己的申請進度。";
 }
