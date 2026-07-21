@@ -176,7 +176,7 @@ function catalogOptions(sel){
     CATALOG.map((c,i)=>({c,i})).filter(o=>!o.c.hidden||o.i==sel)  // 隱藏品項不顯示（但已選取者仍保留）
       .map(({c,i})=>`<option value="${i}" ${sel==i?"selected":""}>${esc(c.name)}</option>`).join("");
 }
-function blankRow(){return {item:"",period:"",plan:"",content:"",option:"自費選購",qty:"",format:"印刷稿",delivery:"宅配",image:""};}
+function blankRow(){return {item:"",period:"",plan:"",content:"",option:"自費選購",qty:"",format:"印刷稿",delivery:"宅配",images:[]};}
 function addItem(data){itemRows.push(data||blankRow());renderItems();}
 function rmItem(i){itemRows.splice(i,1);if(!itemRows.length)itemRows.push(blankRow());renderItems();}
 /* 依欄位設定取下拉選項：true/undefined=沿用共用清單；array=此品項專屬清單（內容可與共用不同）*/
@@ -210,12 +210,15 @@ function renderItems(){
         ${optionalHtml}
         <div class="full"><label>申請文宣內容 <span class="req">*</span></label>
           <textarea oninput="setRow(${i},'content',this.value)" placeholder="文宣上要呈現的文案／訴求，例：外送門檻、活動辦法、菜單內容…">${esc(r.content)}</textarea></div>
-        <div class="full"><label>附件圖檔（選填，可放門市自己的 QRcode 或參考圖）</label>
-          <input type="file" accept="image/*" onchange="onItemImage(${i},this)">
-          ${r.image?`<div style="margin-top:8px;display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap">
-            <a href="${r.image}" target="_blank"><img src="${r.image}" alt="附件預覽" style="max-width:160px;max-height:160px;border:1px solid var(--line);border-radius:8px;display:block"></a>
-            <button class="btn danger sm" type="button" onclick="rmItemImage(${i})">移除圖檔</button>
-          </div>`:`<div style="font-size:11px;color:var(--muted);margin-top:4px">支援 JPG／PNG，上傳後會自動壓縮</div>`}</div>
+        <div class="full"><label>附件圖檔（選填，可上傳多張，例如門市 QRcode、參考圖、匯款明細）</label>
+          <input type="file" accept="image/*" multiple onchange="onItemImage(${i},this)">
+          ${(r.images&&r.images.length)?`<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:10px">
+            ${r.images.map((img,j)=>`<div style="position:relative">
+              <img src="${img}" alt="附件${j+1}" onclick="openLightbox('${img}')" style="max-width:150px;max-height:150px;border:1px solid var(--line);border-radius:8px;display:block;cursor:zoom-in">
+              <button class="btn danger sm" type="button" onclick="rmItemImage(${i},${j})" style="position:absolute;top:4px;right:4px;padding:2px 8px">✕</button>
+            </div>`).join("")}
+          </div>`:``}
+          <div style="font-size:11px;color:var(--muted);margin-top:4px">支援 JPG／PNG，可一次選多張；會保留清晰畫質（僅輕度壓縮）</div></div>
       </div>
       ${quote}
     </div>`;
@@ -334,8 +337,9 @@ function onItem(i,v){
   renderItems();
 }
 function setRow(i,k,v){itemRows[i][k]=v; if(k==='qty')renderTotal();}
-/* 圖檔壓縮：縮到最長邊 maxDim、JPEG 壓縮，並確保 base64 不超過約 40KB（attachments 儲存格上限保護）*/
-function fileToCompressedDataUrl(file,maxDim,quality){
+/* 圖檔壓縮：縮到最長邊 maxDim、JPEG 品質 quality（改存 Drive 後無儲存格上限，故保留清晰畫質，僅做輕度上限保護 maxBytes）*/
+function fileToCompressedDataUrl(file,maxDim,quality,maxBytes){
+  maxDim=maxDim||1800; quality=quality||0.85; maxBytes=maxBytes||1600000;
   return new Promise((resolve,reject)=>{
     const fr=new FileReader();
     fr.onload=()=>{
@@ -345,9 +349,10 @@ function fileToCompressedDataUrl(file,maxDim,quality){
         if(w>maxDim||h>maxDim){const s=maxDim/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}
         const draw=(ww,hh,q)=>{const cv=document.createElement("canvas");cv.width=ww;cv.height=hh;const x=cv.getContext("2d");x.fillStyle="#fff";x.fillRect(0,0,ww,hh);x.drawImage(img,0,0,ww,hh);return cv.toDataURL("image/jpeg",q);};
         let q=quality,url=draw(w,h,q);
-        while(url.length>40000&&q>0.3){q-=0.1;url=draw(w,h,q);}
+        // 僅在超過 maxBytes 時才逐步降質，維持可判讀畫質
+        while(url.length>maxBytes&&q>0.5){q-=0.1;url=draw(w,h,q);}
         let ww=w,hh=h;
-        while(url.length>40000&&ww>200){ww=Math.round(ww*0.8);hh=Math.round(hh*0.8);url=draw(ww,hh,0.5);}
+        while(url.length>maxBytes&&ww>800){ww=Math.round(ww*0.85);hh=Math.round(hh*0.85);url=draw(ww,hh,0.7);}
         resolve(url);
       };
       img.onerror=reject;img.src=fr.result;
@@ -356,13 +361,28 @@ function fileToCompressedDataUrl(file,maxDim,quality){
   });
 }
 async function onItemImage(i,el){
-  const f=el.files&&el.files[0];if(!f)return;
-  if(!/^image\//.test(f.type)){toast("請選擇圖片檔（JPG／PNG）");el.value="";return;}
-  toast("圖片處理中…");
-  try{ itemRows[i].image=await fileToCompressedDataUrl(f,600,0.7); renderItems(); }
-  catch(e){ console.warn("圖片讀取失敗",e); toast("⚠ 圖片讀取失敗，請換一張試試"); }
+  const files=el.files?Array.from(el.files):[];
+  if(!files.length)return;
+  if(!itemRows[i].images)itemRows[i].images=[];
+  toast("圖片處理中…（"+files.length+" 張）");
+  try{
+    for(const f of files){
+      if(!/^image\//.test(f.type)){toast("略過非圖片檔："+f.name);continue;}
+      itemRows[i].images.push(await fileToCompressedDataUrl(f,1800,0.85));
+    }
+    el.value=""; renderItems();
+  }catch(e){ console.warn("圖片讀取失敗",e); toast("⚠ 圖片讀取失敗，請換一張試試"); }
 }
-function rmItemImage(i){ itemRows[i].image=""; renderItems(); }
+function rmItemImage(i,j){ if(itemRows[i].images)itemRows[i].images.splice(j,1); renderItems(); }
+/* 圖片放大燈箱（支援 data: 與 https 圖，取代原本開新分頁被瀏覽器擋成空白的做法）*/
+function openLightbox(src){
+  const bg=document.createElement("div");
+  bg.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px;cursor:zoom-out";
+  bg.innerHTML=`<img src="${src}" style="max-width:96vw;max-height:92vh;border-radius:8px;box-shadow:0 4px 30px rgba(0,0,0,.5)">
+    <button style="position:absolute;top:16px;right:20px;background:#fff;border:none;border-radius:50%;width:40px;height:40px;font-size:22px;cursor:pointer">✕</button>`;
+  bg.addEventListener("click",()=>bg.remove());
+  document.body.appendChild(bg);
+}
 /* 數量離開欄位即時防呆：基準量>1 的品項，數量非正整數倍 → 主動通知錯誤量並清除（不把無效值填進去）*/
 function qtyCheck(i,el){
   const r=itemRows[i]; const cat=CATALOG.find(c=>c.name===r.item); if(!cat)return;
@@ -485,7 +505,7 @@ function initSigPad(){
 function clearSig(){const cv=document.getElementById("sigPad");if(cv&&sigCtx){sigCtx.clearRect(0,0,cv.width,cv.height);sigHasInk=false;}}
 
 /* 本機暫存前移除大型 base64（圖檔），避免 localStorage 爆量 */
-function stripBig(c){return {...c,items:(c.items||[]).map(it=>{const o={...it};if(o.image){o.hasImage=true;o.image="";}return o;})};}
+function stripBig(c){return {...c,items:(c.items||[]).map(it=>{const o={...it};const n=(o.images&&o.images.length)||0;if(n){o.hasImage=true;o.imageCount=n;}o.images=[];o.image="";return o;})};}
 
 async function doSubmit(items,signatureDataUrl,remitDataUrl){
   const c={
@@ -556,8 +576,10 @@ function renderList(){
 }
 
 /* ====== 案件詳情 / 處理 ====== */
+let editItems=[];
 function openCase(idx){
   const c=cases[idx];
+  editItems=(role==="admin")?c.items.map(it=>Object.assign({},it)):[];  // 管理端可編輯的申請內容工作副本
   const itemsTbl=`<div class="scrollwrap" style="max-height:none;margin-bottom:14px"><table class="itemlist">
     <thead><tr><th>品項</th><th>數量</th><th>方案</th><th>選配</th><th>格式</th><th>運送</th><th>活動期間</th><th>內容</th></tr></thead>
     <tbody>${c.items.map(it=>`<tr>
@@ -592,8 +614,8 @@ function openCase(idx){
       <div class="k">聯絡電話</div><div>${esc(c.phone||"—")}</div>
       <div class="k">預估金額</div><div>${fmt$(c.amount)}</div>
     </div>
-    <div class="sec-title"><span class="dot"></span>文宣輸出物（${c.items.length} 項）</div>
-    ${itemsTbl}
+    <div class="sec-title"><span class="dot"></span>文宣輸出物（${c.items.length} 項）${role==="admin"?'<span style="font-size:11px;font-weight:400;color:var(--muted)">　可直接修改申請內容</span>':''}</div>
+    ${role==="admin"?'<div id="caseItemsEdit"></div>':itemsTbl}
     <div id="attachWrap"></div>
     ${role==="admin"?`<div class="sec-title"><span class="dot"></span>POS 按鍵設定（內部）</div>${posSection}`:''}
     <div class="sec-title"><span class="dot"></span>處理進度（管理）</div>
@@ -602,9 +624,39 @@ function openCase(idx){
       :`<p class="hint" style="margin-top:10px">切換為「管理（總部）」角色才能更新處理進度。</p>`}
     <div class="sec-title" style="margin-top:18px"><span class="dot"></span>處理進度歷程</div>
     <div id="historyWrap"></div>`);
+  if(role==="admin")renderCaseItemsEditor();
   loadAttachments(c);
   loadHistory(c);
 }
+/* ====== 管理端：編輯申請內容（品項）====== */
+function ceCatOptions(sel){
+  return CATALOG.map(c=>c.name).filter(n=>!(CATALOG.find(x=>x.name===n)||{}).hidden||n===sel)
+    .map(n=>`<option ${n===sel?"selected":""}>${esc(n)}</option>`).join("");
+}
+function ceSelOpts(val,opts){return ["<option value=''>—</option>"].concat((opts||[]).map(o=>`<option ${val===o?"selected":""}>${esc(o)}</option>`)).join("");}
+function renderCaseItemsEditor(){
+  const wrap=document.getElementById("caseItemsEdit"); if(!wrap)return;
+  wrap.innerHTML=editItems.map((it,i)=>`
+    <div class="item-card">
+      <span class="idx">品項 ${i+1}</span>
+      ${editItems.length>1?`<button class="btn danger sm rm" type="button" onclick="ceRemove(${i})">移除</button>`:""}
+      <div class="grid">
+        <div class="full"><label>文宣品項</label><select onchange="ceSetItem(${i},this.value)"><option value="">— 選擇 —</option>${ceCatOptions(it.item)}</select></div>
+        <div><label>數量</label><input value="${esc(it.qty||'')}" onchange="ceSet(${i},'qty',this.value)"></div>
+        <div><label>設計／行銷方案</label><select onchange="ceSet(${i},'plan',this.value)">${ceSelOpts(it.plan,PLAN_OPTS)}</select></div>
+        <div><label>選配方式</label><select onchange="ceSet(${i},'option',this.value)">${ceSelOpts(it.option,OPTION_OPTS)}</select></div>
+        <div><label>檔案格式</label><select onchange="ceSet(${i},'format',this.value)">${ceSelOpts(it.format,FORMAT_OPTS)}</select></div>
+        <div><label>運送方式</label><select onchange="ceSet(${i},'delivery',this.value)">${ceSelOpts(it.delivery,DELIVERY_OPTS)}</select></div>
+        <div class="full"><label>活動期間</label><input value="${esc(it.period||'')}" onchange="ceSet(${i},'period',this.value)"></div>
+        <div class="full"><label>申請文宣內容</label><textarea onchange="ceSet(${i},'content',this.value)">${esc(it.content||'')}</textarea></div>
+      </div>
+    </div>`).join("")+
+    `<div class="btn-row" style="margin-top:0"><button class="btn sec sm" type="button" onclick="ceAdd()">＋ 新增品項</button></div>`;
+}
+function ceSet(i,k,v){ if(editItems[i])editItems[i][k]=v; }
+function ceSetItem(i,name){ const cat=CATALOG.find(x=>x.name===name); editItems[i].item=name; if(cat){ if(!editItems[i].qty)editItems[i].qty=cat.baseQty; editItems[i].format=cat.format||editItems[i].format; } renderCaseItemsEditor(); }
+function ceRemove(i){ editItems.splice(i,1); if(!editItems.length)editItems.push({item:"",qty:"",plan:"",option:"自費選購",format:"印刷稿",delivery:"宅配",period:"",content:""}); renderCaseItemsEditor(); }
+function ceAdd(){ editItems.push({item:"",qty:"",plan:"",option:"自費選購",format:"印刷稿",delivery:"宅配",period:"",content:""}); renderCaseItemsEditor(); }
 /* 載入並顯示案件附件（門市上傳圖檔／電子簽名）；getAttachments 為管理動作 */
 async function loadAttachments(c){
   const wrap=document.getElementById("attachWrap");
@@ -616,23 +668,41 @@ async function loadAttachments(c){
     const imgs=(atts||[]).filter(a=>a.kind==="item").sort((a,b)=>a.idx-b.idx);
     const sign=(atts||[]).find(a=>a.kind==="sign");
     const remit=(atts||[]).find(a=>a.kind==="remit");
+    const src=a=>a.url||a.dataUrl||"";
+    const big=a=>a.fileId?('https://drive.google.com/thumbnail?id='+a.fileId+'&sz=w2000'):(a.dataUrl||"");
+    const cell=(a,w)=>`<div style="position:relative;display:inline-block">
+        <img src="${src(a)}" referrerpolicy="no-referrer" onclick="openLightbox('${big(a)}')"
+             onerror="if(this.dataset.fb){this.style.opacity=.3}else if('${a.fileId||''}'){this.dataset.fb=1;this.src='https://lh3.googleusercontent.com/d/${a.fileId||''}=w1600'}"
+             style="max-width:${w}px;max-height:${w}px;border:1px solid var(--line);border-radius:8px;display:block;cursor:zoom-in;background:#fff">
+        ${a.fileId?`<button class="btn danger sm" type="button" title="刪除此附件" onclick="delAttachment('${esc(c.caseNo)}','${a.fileId}')" style="position:absolute;top:4px;right:4px;padding:2px 8px">✕</button>`:""}
+      </div>`;
     let html="";
-    if(imgs.length){
-      html+=`<div class="sec-title"><span class="dot"></span>門市上傳附件（${imgs.length}）</div>
-        <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:6px">`+
-        imgs.map(a=>`<a href="${a.dataUrl}" target="_blank" title="品項${a.idx+1} 附件，點擊放大"><img src="${a.dataUrl}" style="max-width:180px;max-height:180px;border:1px solid var(--line);border-radius:8px;display:block"></a>`).join("")+
-        `</div>`;
-    }
-    if(remit){
-      html+=`<div class="sec-title"><span class="dot"></span>匯款明細</div>
-        <a href="${remit.dataUrl}" target="_blank" title="點擊放大"><img src="${remit.dataUrl}" alt="匯款明細" style="max-width:320px;border:1px solid var(--line);border-radius:8px;background:#fff;display:block"></a>`;
-    }
-    if(sign){
-      html+=`<div class="sec-title" style="margin-top:12px"><span class="dot"></span>申請人電子簽名</div>
-        <img src="${sign.dataUrl}" alt="電子簽名" style="max-width:320px;border:1px solid var(--line);border-radius:8px;background:#fff;display:block">`;
-    }
-    wrap.innerHTML=html;   // 沒有附件就清空（不顯示區塊）
+    html+=`<div class="sec-title"><span class="dot"></span>門市上傳附件（${imgs.length}）</div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:8px">${imgs.map(a=>cell(a,180)).join("")||'<span class="hint">（無）</span>'}</div>
+      <div style="margin-bottom:6px"><input type="file" accept="image/*" multiple onchange="addAttachmentFiles('${esc(c.caseNo)}',this)">
+        <span style="font-size:11px;color:var(--muted)">管理者可補上傳參考圖／匯款明細（可多張，保留清晰畫質）</span></div>`;
+    if(remit){ html+=`<div class="sec-title"><span class="dot"></span>匯款明細</div><div style="margin-bottom:6px">${cell(remit,320)}</div>`; }
+    if(sign){ html+=`<div class="sec-title" style="margin-top:12px"><span class="dot"></span>申請人電子簽名</div><div>${cell(sign,320)}</div>`; }
+    wrap.innerHTML=html;
   }catch(e){ console.warn("附件載入失敗",e); wrap.innerHTML=`<div class="hint" style="color:var(--danger)">附件載入失敗</div>`; }
+}
+/* 管理端：附件刪除／新增 */
+function reloadAttachments(caseNo){ const c=cases.find(x=>x.caseNo===caseNo); if(c)loadAttachments(c); }
+async function delAttachment(caseNo,ref){
+  if(!confirm("確定刪除這張附件？此動作無法復原。"))return;
+  try{ await api("deleteAttachment",{caseNo:caseNo,ref:ref}); toast("已刪除附件"); reloadAttachments(caseNo); }
+  catch(e){ toast("⚠ 刪除失敗："+e.message); }
+}
+async function addAttachmentFiles(caseNo,el){
+  const files=el.files?Array.from(el.files):[]; if(!files.length)return;
+  toast("上傳中…（"+files.length+" 張）");
+  try{
+    for(const f of files){ if(!/^image\//.test(f.type)){toast("略過非圖片："+f.name);continue;}
+      const data=await fileToCompressedDataUrl(f,1800,0.85);
+      await api("addAttachment",{caseNo:caseNo,kind:"item",idx:0,dataUrl:data});
+    }
+    el.value=""; toast("已新增附件"); reloadAttachments(caseNo);
+  }catch(e){ console.warn("上傳失敗",e); toast("⚠ 上傳失敗："+e.message); }
 }
 /* 處理進度歷程（每次狀態變更一筆，時間軸顯示）；caseHistory 為管理動作 */
 function fmtTime(iso){
@@ -673,12 +743,17 @@ async function saveCase(idx){
   c.actual=document.getElementById("m_actual").value;
   c.adminNote=document.getElementById("m_note").value;
   const gv=id=>document.getElementById(id)?.value||"";
+  let itemsPayload;
   if(role==="admin"){
     c.pos={name:gv("m_pos_name"),item:gv("m_pos_item"),time:gv("m_pos_time"),
            ticket:gv("m_pos_ticket"),type:gv("m_pos_type"),online:gv("m_pos_online"),note:gv("m_pos_note")};
+    // 管理端編輯後的申請內容：保留原有旗標（hasImage/imageCount），重算單項金額
+    itemsPayload=editItems.filter(it=>it.item).map(it=>({...it,unitPrice:rowAmount(it)}));
+    c.items=itemsPayload;
+    c.amount=itemsPayload.reduce((a,it)=>a+Number(it.unitPrice||0),0);
   }
   if(API_URL){
-    try{ await api("update",{caseNo:c.caseNo,status:c.status,quote:c.quote,actual:c.actual,adminNote:c.adminNote,pos:c.pos}); }
+    try{ await api("update",{caseNo:c.caseNo,status:c.status,quote:c.quote,actual:c.actual,adminNote:c.adminNote,pos:c.pos,items:itemsPayload}); }
     catch(e){ console.warn("雲端更新失敗",e); toast("⚠ 雲端更新失敗，已暫存本機"); }
   }
   if(!save()){toast("⚠ 儲存失敗：本機空間已滿");return;}
