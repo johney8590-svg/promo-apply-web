@@ -580,13 +580,21 @@ let editItems=[];
 function openCase(idx){
   const c=cases[idx];
   editItems=(role==="admin")?c.items.map(it=>Object.assign({},it)):[];  // 管理端可編輯的申請內容工作副本
-  const itemsTbl=`<div class="scrollwrap" style="max-height:none;margin-bottom:14px"><table class="itemlist">
+  const itemsTableHtml=(arr)=>`<div class="scrollwrap" style="max-height:none;margin-bottom:14px"><table class="itemlist">
     <thead><tr><th>品項</th><th>數量</th><th>方案</th><th>選配</th><th>格式</th><th>運送</th><th>活動期間</th><th>內容</th></tr></thead>
-    <tbody>${c.items.map(it=>`<tr>
+    <tbody>${(arr||[]).map(it=>`<tr>
       <td><b>${esc(it.item)}</b></td><td>${esc(it.qty)}</td><td>${esc(it.plan||"—")}</td>
       <td>${esc(it.option||"—")}</td><td>${esc(it.format||"—")}</td><td>${esc(it.delivery||"—")}</td>
       <td>${esc(it.period||"—")}</td><td style="max-width:220px;white-space:pre-wrap">${esc(it.content||"—")}</td>
     </tr>`).join("")}</tbody></table></div>`;
+  const itemsTbl=itemsTableHtml(c.items);
+  // 原始送單內容對照（不可改）；比對核心欄位判斷是否已被修改
+  const itemsCore=(a)=>JSON.stringify((a||[]).map(it=>({i:it.item,q:it.qty,p:it.plan,o:it.option,f:it.format,d:it.delivery,e:it.period,c:it.content})));
+  const hasOrig=c.origItems&&c.origItems.length;
+  const contentEdited=hasOrig&&itemsCore(c.items)!==itemsCore(c.origItems);
+  const origSection=hasOrig?`<details style="margin:-4px 0 14px">
+    <summary style="cursor:pointer;font-size:13px;color:var(--primary-dark);user-select:none">▸ 門市原始送單內容（對照用，永不改動）${contentEdited?' <span style="background:var(--warn);color:#fff;font-size:11px;padding:1px 8px;border-radius:10px">內容已被修改</span>':' <span style="color:var(--ok);font-size:11px">（與目前相同）</span>'}</summary>
+    <div style="margin-top:8px">${itemsTableHtml(c.origItems)}</div></details>`:'';
   const pos=c.pos||{};
   const posSection=role==="admin"?`
     <div class="grid">
@@ -616,6 +624,7 @@ function openCase(idx){
     </div>
     <div class="sec-title"><span class="dot"></span>文宣輸出物（${c.items.length} 項）${role==="admin"?'<span style="font-size:11px;font-weight:400;color:var(--muted)">　可直接修改申請內容</span>':''}</div>
     ${role==="admin"?'<div id="caseItemsEdit"></div>':itemsTbl}
+    ${origSection}
     <div id="attachWrap"></div>
     ${role==="admin"?`<div class="sec-title"><span class="dot"></span>POS 按鍵設定（內部）</div>${posSection}`:''}
     <div class="sec-title"><span class="dot"></span>處理進度（管理）</div>
@@ -723,13 +732,17 @@ async function loadHistory(c){
     wrap.innerHTML=`<div style="padding-left:4px">`+
       hist.map((h,i)=>{
         const last=i===hist.length-1;
+        const isNote=Number(h.status)<0;   // status=-1＝內容修改等備註
+        const badge=isNote
+          ? `<span style="font-size:12.5px;color:#8a6d1e">${esc(h.label||'')}</span>`
+          : `<span class="tag s${h.status}">${esc(h.label||STATUS[h.status]||'')}</span>`;
         return `<div style="display:flex;gap:10px;align-items:flex-start">
           <div style="display:flex;flex-direction:column;align-items:center;align-self:stretch">
-            <div style="width:11px;height:11px;border-radius:50%;background:${last?'var(--primary)':'#b8d4c0'};margin-top:5px;flex:0 0 auto"></div>
+            <div style="width:11px;height:11px;border-radius:50%;background:${isNote?'#e0b84a':(last?'var(--primary)':'#b8d4c0')};margin-top:5px;flex:0 0 auto"></div>
             ${!last?'<div style="width:2px;flex:1;min-height:20px;background:#dde5e0"></div>':''}
           </div>
           <div style="padding-bottom:10px">
-            <span class="tag s${h.status}">${esc(h.label||STATUS[h.status]||'')}</span>
+            ${badge}
             <span style="font-size:12px;color:var(--muted);margin-left:8px">${fmtTime(h.at)}</span>
           </div>
         </div>`;
