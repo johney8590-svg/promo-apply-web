@@ -53,8 +53,8 @@ const STATUS=["待處理","設計中","已印刷"];
 /* 可由「申請欄位設定」開關的文宣品項欄位（品項、申請文宣內容一律顯示）*/
 const FIELD_DEFS=[["period","活動期間"],["plan","設計/行銷方案"],["qty","數量"],["option","選配方式"],["format","檔案格式"],["delivery","運送方式"]];
 const LS_KEY="promo_apply_cases_v1", LS_LINE="promo_apply_line_v1", LS_FIELDS="promo_apply_fields_v1";
-const PUBLIC_SITE="https://promo-apply-web.johney8590.workers.dev/";
-const ADMIN_SITE="https://promo-apply-web.johney8590.workers.dev/admin.html";  // 通知連結導向管理頁，方便點開直接改狀態
+const PUBLIC_SITE="https://johney8590-svg.github.io/promo-apply-web/";
+const ADMIN_SITE="https://johney8590-svg.github.io/promo-apply-web/admin.html";  // 通知連結導向管理頁，方便點開直接改狀態（改用 GitHub Pages，Cloudflare 部署快取有問題）
 const DEFAULT_LINE_TPL=
   "【門市文宣申請通知】\n"+
   "案號：{caseNo}\n"+
