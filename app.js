@@ -18,6 +18,17 @@ let STORE_GROUPS=[
   ["宜蘭",["宜蘭礁溪","羅東民權"]]
 ];
 let STORES=[]; let STORE_REGION={};
+/* 門市 → 負責督導（主檔＝修繕進度系統，由後端 storeDir 帶回；管理頁可編輯）*/
+let STORE_SUP={}; let STORE_SYNC_AT="";
+/* 門市名稱正規化：修繕系統帶「店」字尾、文宣系統沒有，比對時一律去掉 */
+function normStoreName(s){return String(s==null?"":s).trim().replace(/店$/,"")}
+function supOfStore(s){
+  if(!s)return"";
+  if(STORE_SUP[s])return STORE_SUP[s];
+  const n=normStoreName(s);
+  const k=Object.keys(STORE_SUP).find(k=>normStoreName(k)===n);
+  return k?STORE_SUP[k]:"";
+}
 /* 由 STORE_GROUPS 重算扁平門市清單與「門市→區域」對照（雲端門市清單載入後也會呼叫）*/
 function rebuildStores(){
   STORES=STORE_GROUPS.reduce((a,g)=>a.concat(g[1]),[]);
@@ -140,6 +151,13 @@ async function loadOptions(){
 }
 async function loadStores(){
   if(!API_URL)return;
+  try{
+    const d=await api("storeDir");   // 門市清單＋門市→督導對照
+    if(d&&Array.isArray(d.groups)&&d.groups.length){
+      STORE_GROUPS=d.groups; STORE_SUP=d.sup||{}; STORE_SYNC_AT=d.syncAt||"";
+      rebuildStores(); refillStoreSelects(); return;
+    }
+  }catch(e){ console.warn("門市／督導對照載入失敗，改用舊版門市清單",e); }
   try{
     const list=await api("stores");
     if(Array.isArray(list)&&list.length){ STORE_GROUPS=list; rebuildStores(); refillStoreSelects(); }
@@ -462,7 +480,7 @@ function openSignatureModal(items){
       <div style="font-size:11px;color:var(--muted);margin-top:4px">請上傳匯款／轉帳明細截圖（JPG／PNG，會自動壓縮）</div>
       <div id="remitPreview" style="margin-top:8px"></div>
     </div>
-    <div style="font-size:12px;color:var(--muted);margin-top:10px">門市：<b>${esc(f_store.value)}</b>（${esc(STORE_REGION[f_store.value]||"")}）　聯絡電話：${esc(f_phone.value)}</div>
+    <div style="font-size:12px;color:var(--muted);margin-top:10px">門市：<b>${esc(f_store.value)}</b>（${esc(STORE_REGION[f_store.value]||"")}）　督導：${esc(supOfStore(f_store.value)||"—")}　聯絡電話：${esc(f_phone.value)}</div>
     <div class="btn-row" style="margin-top:10px">
       <button class="btn" id="sigConfirm" type="button">確認並送出</button>
       <button class="btn sec" type="button" onclick="closeModal()">取消</button>
@@ -511,7 +529,7 @@ function stripBig(c){return {...c,items:(c.items||[]).map(it=>{const o={...it};c
 async function doSubmit(items,signatureDataUrl,remitDataUrl){
   const c={
     caseNo:genCaseNo(f_store.value,f_date.value),applyDate:f_date.value,dept:"",region:STORE_REGION[f_store.value]||"",store:f_store.value,
-    supervisor:"",phone:f_phone.value,
+    supervisor:supOfStore(f_store.value),phone:f_phone.value,
     items:items.map(r=>({...r,unitPrice:rowAmount(r)})),
     pos:{name:"",item:"",time:"",ticket:"",type:"",online:"",note:""},
     amount:items.reduce((a,r)=>a+rowAmount(r),0),
@@ -619,6 +637,7 @@ function openCase(idx){
     <h2>${esc(c.caseNo)}　<span class="tag s${c.status}">${STATUS[c.status]}</span></h2>
     <div class="kv">
       <div class="k">門市</div><div>${esc(c.store)}（${esc(c.region)}）</div>
+      <div class="k">負責督導</div><div>${esc(c.supervisor||supOfStore(c.store)||"—")}</div>
       <div class="k">申請日期</div><div>${esc(c.applyDate)}</div>
       <div class="k">聯絡電話</div><div>${esc(c.phone||"—")}</div>
       <div class="k">預估金額</div><div>${fmt$(c.amount)}</div>
@@ -898,13 +917,102 @@ async function loadEmailCfg(){
       email_to.value=c.to||"";
       email_subject.value=c.subject||DEFAULT_EMAIL_SUBJECT;
       email_tpl.value=(c.template!==undefined&&c.template!=="")?c.template:DEFAULT_EMAIL_TPL;
+      SUP_EMAILS=(c.supEmails&&typeof c.supEmails==="object")?c.supEmails:{};
+      const se=document.getElementById("email_sup_enabled");
+      if(se){
+        se.checked=(c.supEnabled!==false);
+        document.getElementById("email_printed_enabled").checked=(c.printedEnabled!==false);
+        document.getElementById("email_printed_dept").checked=!!c.printedToDept;
+        document.getElementById("email_printed_subject").value=c.printedSubject||DEFAULT_PRINTED_SUBJECT;
+        document.getElementById("email_printed_tpl").value=(c.printedTemplate!==undefined&&c.printedTemplate!=="")?c.printedTemplate:DEFAULT_PRINTED_TPL;
+      }
       emailCfgLoaded=true;
     }
   }catch(e){ console.warn("Email 設定載入失敗",e); }
 }
 function emailFormCfg(){
-  return {enabled:email_enabled.checked,to:email_to.value.trim(),
+  const cfg={enabled:email_enabled.checked,to:email_to.value.trim(),
     subject:email_subject.value.trim()||DEFAULT_EMAIL_SUBJECT,template:email_tpl.value};
+  // 督導通知（卡片以 JS 注入，存在才帶）
+  if(document.getElementById("email_sup_enabled")){
+    cfg.supEnabled     = document.getElementById("email_sup_enabled").checked;
+    cfg.printedEnabled = document.getElementById("email_printed_enabled").checked;
+    cfg.printedToDept  = document.getElementById("email_printed_dept").checked;
+    cfg.printedSubject = document.getElementById("email_printed_subject").value.trim()||DEFAULT_PRINTED_SUBJECT;
+    cfg.printedTemplate= document.getElementById("email_printed_tpl").value;
+    cfg.supEmails      = collectSupEmails();
+  }
+  return cfg;
+}
+
+/* ====== 督導 Email 通知（設計中／已印刷 通知對應門市督導；卡片以 JS 注入 view-line）====== */
+const DEFAULT_PRINTED_SUBJECT="【文宣印刷完成】{caseNo} {store}";
+const DEFAULT_PRINTED_TPL=
+  "{supervisor} 督導您好，以下門市的文宣申請已完成印刷：\n\n"+
+  "案號：{caseNo}\n門市：{store}（{region}）\n申請日期：{applyDate}\n"+
+  "申請品項：\n{items}\n設計部報價：{quote}\n狀態：已印刷 ✅\n連結：{link}";
+let SUP_EMAILS={}; let supEmailNames=[];
+function ensureSupEmailCard(){
+  if(document.getElementById("supEmailCard"))return;
+  const view=document.getElementById("view-line"); if(!view)return;
+  const card=document.createElement("div"); card.className="card"; card.id="supEmailCard";
+  card.innerHTML=`<h2>督導 Email 通知（設計中／已印刷 通知對應門市督導）</h2>
+    <p class="hint">每家門市的<b>負責督導</b>在「品項/選項管理 → 門市清單管理」設定（主檔同步自修繕進度系統）。案件轉<b>設計中</b>或<b>已印刷</b>時，系統會依申請門市自動找到督導，寄信到下方對應信箱；督導沒填信箱就不寄。</p>
+    <div class="grid">
+      <div class="full"><label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" id="email_sup_enabled" style="width:auto;height:16px">轉「設計中」時，一併通知該門市督導</label></div>
+      <div class="full"><label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" id="email_printed_enabled" style="width:auto;height:16px">轉「已印刷」時，寄信通知該門市督導</label></div>
+      <div class="full"><label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" id="email_printed_dept" style="width:auto;height:16px">「已印刷」的信同時副知上方「相關部門收件信箱」</label></div>
+      <div class="full"><label>「已印刷」主旨範本</label><input type="text" id="email_printed_subject" placeholder="${esc(DEFAULT_PRINTED_SUBJECT)}"></div>
+      <div class="full"><label>「已印刷」內容範本</label>
+        <textarea id="email_printed_tpl" style="min-height:170px;font-family:inherit"></textarea>
+        <div class="pill-note" style="margin-top:8px">可用代入欄位：<code>{caseNo}</code> 案號 · <code>{store}</code> 門市 · <code>{region}</code> 區域 · <code>{supervisor}</code> 督導 · <code>{applyDate}</code> 申請日期 · <code>{phone}</code> 聯絡電話 · <code>{items}</code> 申請品項摘要 · <code>{amount}</code> 預估金額 · <code>{quote}</code> 設計部報價 · <code>{adminNote}</code> 處理備註 · <code>{status}</code> 狀態 · <code>{link}</code> 連結。</div>
+      </div>
+    </div>
+    <div class="sec-title"><span class="dot"></span>督導信箱對照</div>
+    <div id="supEmailBody"></div>
+    <div class="btn-row"><button class="btn" type="button" onclick="document.getElementById('saveEmail').click()">儲存督導通知設定</button></div>`;
+  view.appendChild(card);
+}
+function renderSupEmailTable(){
+  const body=document.getElementById("supEmailBody"); if(!body)return;
+  const counts={};
+  Object.keys(STORE_SUP).forEach(k=>{const v=String(STORE_SUP[k]||"").trim();if(v)counts[v]=(counts[v]||0)+1;});
+  supEmailNames=Object.keys(counts).sort();
+  // 已設過信箱但目前沒門市掛在他名下的督導也保留顯示
+  Object.keys(SUP_EMAILS).forEach(k=>{if(k&&supEmailNames.indexOf(k)<0)supEmailNames.push(k);});
+  if(!supEmailNames.length){
+    body.innerHTML='<p class="hint">尚未設定任何門市督導。請到「品項/選項管理 → 門市清單管理」填寫督導，或按該頁的「🔄 從修繕系統同步」。</p>';
+    return;
+  }
+  body.innerHTML=supEmailNames.map((nm,i)=>`
+    <div style="display:grid;grid-template-columns:150px 1fr auto;gap:8px;align-items:center;margin-bottom:8px">
+      <div style="font-size:13px">${esc(nm)}<span style="color:var(--muted);font-size:11px">　${counts[nm]||0} 家</span></div>
+      <input id="supmail_${i}" type="text" value="${esc(SUP_EMAILS[nm]||"")}" placeholder="例：${esc(nm)}@company.com（可多個，逗號分隔）" style="padding:7px 11px;border:1px solid #cdd5d0;border-radius:7px;font-size:13px">
+      <button class="btn sec sm" type="button" onclick="testSupEmail(${i})">測試</button>
+    </div>`).join("");
+}
+function collectSupEmails(){
+  const out={};
+  supEmailNames.forEach((nm,i)=>{
+    const el=document.getElementById("supmail_"+i);
+    out[nm]=el?el.value.trim():(SUP_EMAILS[nm]||"");
+  });
+  SUP_EMAILS=out;
+  return out;
+}
+async function testSupEmail(i){
+  const nm=supEmailNames[i], el=document.getElementById("supmail_"+i);
+  const to=el?el.value.trim():"";
+  if(!to){toast("請先填寫 "+nm+" 的信箱");return;}
+  if(!API_URL){toast("尚未設定雲端後端，無法發送");return;}
+  try{
+    const r=await api("emailTest",{to:to,who:nm});
+    if(r&&r.ok)toast("✅ 已寄出測試信至："+r.to);
+    else toast("⚠ 測試失敗："+String((r&&r.detail)||"請確認信箱"));
+  }catch(e){ toast("⚠ 測試失敗："+e.message); }
 }
 saveEmail.addEventListener("click",async()=>{
   const cfg=emailFormCfg();
@@ -1061,29 +1169,46 @@ saveOptsBtn.addEventListener("click",async()=>{
   }else{toast("選項設定已儲存（本機）");}
 });
 
-/* ====== 門市清單管理（管理頁；卡片以 JS 注入 view-optmgr，門市/管理兩頁共用 app.js）====== */
+/* ====== 門市清單管理（管理頁；卡片以 JS 注入 view-optmgr，門市/管理兩頁共用 app.js）======
+   storeEdit 結構：[[區域,[[門市,督導],...]],...]；督導主檔來自修繕進度系統，可按「從修繕系統同步」拉取 */
 let storeEdit=[];
-function initStoreEdit(){ storeEdit=STORE_GROUPS.map(g=>[g[0],[...g[1]]]); }
+function initStoreEdit(){ storeEdit=STORE_GROUPS.map(g=>[g[0],g[1].map(s=>[s,supOfStore(s)])]); }
 function ensureStoreMgrCard(){
   if(document.getElementById("storeMgrCard"))return;
   const view=document.getElementById("view-optmgr"); if(!view)return;
   const card=document.createElement("div");
   card.className="card"; card.id="storeMgrCard";
-  card.innerHTML=`<h2>門市清單管理</h2>
-    <p class="hint">新增／調整門市與所屬區域（區域用於申請時自動帶入）。× 刪除、填入後按「＋」新增；改完按「儲存門市清單」全門市共用，申請表的門市下拉即時更新。</p>
+  card.innerHTML=`<h2>門市清單管理（含負責督導）</h2>
+    <p class="hint">新增／調整門市、所屬區域與<b>負責督導</b>（區域用於申請時自動帶入；督導決定「設計中／已印刷」通知寄給誰）。× 刪除、填入後按「＋ 新增門市」；改完按「儲存門市清單」全門市共用。</p>
+    <div class="pill-note">門市與督導的<b>主檔是「修繕進度系統」</b>：在修繕系統新增門市／改督導後會自動同步過來，也可按下方「🔄 從修繕系統同步」立即拉取（只會新增與更新，不會刪掉這裡已有的門市）。<span id="storeSyncAt"></span></div>
     <div id="storeEditBody"></div>
     <div class="btn-row" style="margin-top:6px">
       <button class="btn sec sm" type="button" onclick="storeAddRegion()">＋ 新增區域</button>
+      <button class="btn sec sm" id="syncStoreBtn" type="button" onclick="syncStoresNow()">🔄 從修繕系統同步</button>
       <button class="btn" type="button" onclick="saveStores()">儲存門市清單</button>
-    </div>`;
+    </div>
+    <datalist id="supNameList"></datalist>`;
   view.appendChild(card);
 }
-/* 結構變更前，先把畫面上各區域名稱輸入框的值同步回 storeEdit，避免未失焦的編輯遺失 */
+/* 結構變更前，先把畫面上各輸入框的值同步回 storeEdit，避免未失焦的編輯遺失 */
 function storeSyncRegions(){
   document.querySelectorAll(".st-region").forEach(el=>{const i=+el.dataset.i;if(i<storeEdit.length)storeEdit[i][0]=el.value;});
+  document.querySelectorAll(".st-name").forEach(el=>{const i=+el.dataset.i,j=+el.dataset.j;if(storeEdit[i]&&storeEdit[i][1][j])storeEdit[i][1][j][0]=el.value;});
+  document.querySelectorAll(".st-sup").forEach(el=>{const i=+el.dataset.i,j=+el.dataset.j;if(storeEdit[i]&&storeEdit[i][1][j])storeEdit[i][1][j][1]=el.value;});
+}
+/* 目前已知的督導名單（供輸入框自動完成）*/
+function knownSupervisors(){
+  const set=new Set();
+  Object.keys(STORE_SUP).forEach(k=>{const v=String(STORE_SUP[k]||"").trim();if(v)set.add(v);});
+  storeEdit.forEach(g=>g[1].forEach(r=>{const v=String(r[1]||"").trim();if(v)set.add(v);}));
+  return [...set].sort();
 }
 function renderStoreEditor(){
   const body=document.getElementById("storeEditBody"); if(!body)return;
+  const dl=document.getElementById("supNameList");
+  if(dl)dl.innerHTML=knownSupervisors().map(v=>`<option value="${esc(v)}">`).join("");
+  const at=document.getElementById("storeSyncAt");
+  if(at)at.textContent=STORE_SYNC_AT?("　最後同步："+STORE_SYNC_AT.slice(0,16).replace("T"," ")):"";
   body.innerHTML=storeEdit.map((g,i)=>`
     <div style="border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:12px;background:#fafbfa">
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
@@ -1092,16 +1217,24 @@ function renderStoreEditor(){
         <span style="font-size:11px;color:var(--muted)">（${g[1].length} 間）</span>
         <button class="btn danger sm" type="button" onclick="storeRmRegion(${i})" style="margin-left:auto">刪除區域</button>
       </div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
-        ${g[1].map((s,j)=>`<span style="background:#eef5f0;border:1px solid #b8d4c0;border-radius:20px;padding:4px 12px;font-size:13px;display:inline-flex;align-items:center;gap:6px">${esc(s)}<button type="button" onclick="storeRmStore(${i},${j})" style="background:none;border:none;cursor:pointer;color:#c0392b;font-size:15px;padding:0;line-height:1;font-weight:700">×</button></span>`).join('')||'<span style="font-size:12px;color:var(--muted)">此區域尚無門市，請於下方新增</span>'}
+      ${g[1].length?`<div style="display:grid;grid-template-columns:1fr 1fr 34px;gap:6px;font-size:11px;color:var(--muted);margin-bottom:4px"><div>門市名稱</div><div>負責督導</div><div></div></div>`:""}
+      <div style="margin-bottom:8px">
+        ${g[1].map((r,j)=>`<div style="display:grid;grid-template-columns:1fr 1fr 34px;gap:6px;margin-bottom:6px;align-items:center">
+            <input class="st-name" data-i="${i}" data-j="${j}" value="${esc(r[0])}" onchange="storeSetName(${i},${j},this.value)" style="padding:6px 10px;border:1px solid #cdd5d0;border-radius:7px;font-size:13px">
+            <input class="st-sup" data-i="${i}" data-j="${j}" value="${esc(r[1]||"")}" list="supNameList" placeholder="（未指派督導）" onchange="storeSetSup(${i},${j},this.value)" style="padding:6px 10px;border:1px solid #cdd5d0;border-radius:7px;font-size:13px">
+            <button type="button" onclick="storeRmStore(${i},${j})" title="刪除門市" style="background:none;border:1px solid #e6c9c4;border-radius:7px;cursor:pointer;color:#c0392b;font-size:15px;line-height:1;padding:6px 0;font-weight:700">×</button>
+          </div>`).join('')||'<span style="font-size:12px;color:var(--muted)">此區域尚無門市，請於下方新增</span>'}
       </div>
-      <div style="display:flex;gap:8px;align-items:center">
-        <input id="storeIn_${i}" placeholder="新增門市名稱…" onkeydown="if(event.key==='Enter'){event.preventDefault();storeAddStore(${i})}" style="flex:1;padding:7px 11px;border:1px solid #cdd5d0;border-radius:7px;font-size:13px">
+      <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:6px;align-items:center">
+        <input id="storeIn_${i}" placeholder="新增門市名稱…" onkeydown="if(event.key==='Enter'){event.preventDefault();storeAddStore(${i})}" style="padding:7px 11px;border:1px solid #cdd5d0;border-radius:7px;font-size:13px">
+        <input id="supIn_${i}" list="supNameList" placeholder="負責督導（可留空）" onkeydown="if(event.key==='Enter'){event.preventDefault();storeAddStore(${i})}" style="padding:7px 11px;border:1px solid #cdd5d0;border-radius:7px;font-size:13px">
         <button class="btn sec sm" type="button" onclick="storeAddStore(${i})">＋ 新增門市</button>
       </div>
     </div>`).join("")||'<p class="hint">尚無區域，請按「＋ 新增區域」。</p>';
 }
 function storeSetRegion(i,v){ if(storeEdit[i])storeEdit[i][0]=v; }
+function storeSetName(i,j,v){ if(storeEdit[i]&&storeEdit[i][1][j])storeEdit[i][1][j][0]=v; }
+function storeSetSup(i,j,v){ if(storeEdit[i]&&storeEdit[i][1][j])storeEdit[i][1][j][1]=v; }
 function storeAddRegion(){ storeSyncRegions(); storeEdit.push(["新區域",[]]); renderStoreEditor(); }
 function storeRmRegion(i){
   storeSyncRegions();
@@ -1109,25 +1242,53 @@ function storeRmRegion(i){
   storeEdit.splice(i,1); renderStoreEditor();
 }
 function storeAddStore(i){
-  const inp=document.getElementById('storeIn_'+i);
+  const inp=document.getElementById('storeIn_'+i), sup=document.getElementById('supIn_'+i);
   const v=(inp?inp.value:'').trim(); if(!v)return;
+  const sv=(sup?sup.value:'').trim();
   storeSyncRegions();
-  if(storeEdit.some(g=>g[1].includes(v))){toast('門市「'+v+'」已存在');return;}
-  storeEdit[i][1].push(v); renderStoreEditor();
+  if(storeEdit.some(g=>g[1].some(r=>r[0]===v))){toast('門市「'+v+'」已存在');return;}
+  storeEdit[i][1].push([v,sv]); renderStoreEditor();
   const ni=document.getElementById('storeIn_'+i); if(ni)ni.focus();
 }
 function storeRmStore(i,j){ storeSyncRegions(); storeEdit[i][1].splice(j,1); renderStoreEditor(); }
 async function saveStores(){
   storeSyncRegions();
-  const list=storeEdit.filter(g=>String(g[0]||'').trim()).map(g=>[String(g[0]).trim(),g[1].filter(Boolean)]);
+  const list=storeEdit.filter(g=>String(g[0]||'').trim())
+    .map(g=>[String(g[0]).trim(),g[1].map(r=>String(r[0]||'').trim()).filter(Boolean)]);
   const flat=list.reduce((a,g)=>a.concat(g[1]),[]);
   if(!flat.length){toast('請至少新增一個區域與門市');return;}
-  STORE_GROUPS=list; rebuildStores(); refillStoreSelects();
-  initStoreEdit(); renderStoreEditor();
+  const sup={};
+  storeEdit.forEach(g=>g[1].forEach(r=>{const nm=String(r[0]||'').trim();if(nm)sup[nm]=String(r[1]||'').trim();}));
+  STORE_GROUPS=list; STORE_SUP=sup; rebuildStores(); refillStoreSelects();
+  initStoreEdit(); renderStoreEditor(); renderSupEmailTable();
   if(API_URL){
-    try{await api("saveStores",{stores:STORE_GROUPS});toast("門市清單已儲存（雲端，全門市共用）");}
+    try{await api("saveStores",{stores:STORE_GROUPS,sup:STORE_SUP});toast("門市／督導已儲存（雲端，全門市共用）");}
     catch(e){toast("⚠ 儲存失敗："+e.message);}
   }else{toast("門市清單已儲存（本機）");}
+}
+/* 立即從修繕進度系統拉取門市／督導（只新增與更新，不刪除既有門市）*/
+async function syncStoresNow(){
+  if(!API_URL){toast("尚未設定雲端後端，無法同步");return;}
+  const btn=document.getElementById("syncStoreBtn");
+  if(btn){btn.disabled=true;btn.textContent="同步中…";}
+  try{
+    const r=await api("syncStores");
+    await loadStores(); initStoreEdit(); renderStoreEditor(); renderSupEmailTable();
+    const add=(r&&r.added)||[], chg=(r&&r.supervisorChanged)||[], only=(r&&r.onlyInPromo)||[];
+    toast("✅ 同步完成：共 "+((r&&r.stores)||STORES.length)+" 家門市／新增 "+add.length+"／督導更新 "+chg.length);
+    if(add.length)  console.log("同步新增門市：",add);
+    if(chg.length)  console.log("督導更新：",chg);
+    if(only.length) console.log("僅存在於文宣系統（未刪除，請自行確認）：",only);
+    if(add.length||only.length){
+      showModal('<button class="close-x" onclick="closeModal()">×</button><h2>門市同步結果</h2>'+
+        '<p class="hint">共 '+((r&&r.stores)||STORES.length)+' 家門市。以下為本次差異，請確認新門市的區域是否正確（可直接在門市清單管理調整）。</p>'+
+        (add.length?'<div class="sec-title"><span class="dot"></span>新增門市（'+add.length+'）</div><div style="font-size:13px;line-height:1.9">'+add.map(esc).join('、')+'</div>':'')+
+        (chg.length?'<div class="sec-title"><span class="dot"></span>督導更新（'+chg.length+'）</div><div style="font-size:13px;line-height:1.9">'+chg.map(esc).join('、')+'</div>':'')+
+        (only.length?'<div class="sec-title"><span class="dot"></span>修繕系統沒有、文宣系統仍保留（'+only.length+'）</div><div style="font-size:13px;line-height:1.9">'+only.map(esc).join('、')+'</div>':'')+
+        '<div class="btn-row" style="margin-top:12px"><button class="btn" onclick="closeModal()">知道了</button></div>');
+    }
+  }catch(e){ toast("⚠ 同步失敗："+e.message); }
+  finally{ if(btn){btn.disabled=false;btn.textContent="🔄 從修繕系統同步";} }
 }
 
 /* ====== 申請欄位設定 事件 ====== */
@@ -1200,7 +1361,7 @@ nav.querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{
   if(b.dataset.tab==="dashboard")renderDash();
   if(b.dataset.tab==="list")renderList();
   if(b.dataset.tab==="fields")renderFieldTable();
-  if(b.dataset.tab==="line"){loadLineCfg();loadEmailCfg();}
+  if(b.dataset.tab==="line"){loadLineCfg();ensureSupEmailCard();loadEmailCfg().then(()=>renderSupEmailTable());}
   if(b.dataset.tab==="optmgr"){catalogEdit=CATALOG.map(c=>({...c}));initOptEdit();renderCatalogEditor();renderOptionEditor();ensureStoreMgrCard();initStoreEdit();renderStoreEditor();
     // 管理密碼已移除：隱藏「管理密碼設定」卡片
     const pw=document.getElementById("pwListWrap"); if(pw&&pw.closest(".card"))pw.closest(".card").style.display="none";}
