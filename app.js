@@ -957,7 +957,7 @@ function ensureSupEmailCard(){
   const view=document.getElementById("view-line"); if(!view)return;
   const card=document.createElement("div"); card.className="card"; card.id="supEmailCard";
   card.innerHTML=`<h2>督導 Email 通知（設計中／已印刷 通知對應門市督導）</h2>
-    <p class="hint">每家門市的<b>負責督導</b>在「品項/選項管理 → 門市清單管理」設定（主檔同步自修繕進度系統）。案件轉<b>設計中</b>或<b>已印刷</b>時，系統會依申請門市自動找到督導，寄信到下方對應信箱；督導沒填信箱就不寄。</p>
+    <p class="hint">每家門市的<b>負責督導</b>在「品項/選項管理 → 門市清單管理」設定（主檔同步自 Google 試算表「門店資料表_UG」）。案件轉<b>設計中</b>或<b>已印刷</b>時，系統會依申請門市自動找到督導，寄信到下方對應信箱；督導沒填信箱就不寄。</p>
     <div class="grid">
       <div class="full"><label style="display:flex;align-items:center;gap:8px;cursor:pointer">
         <input type="checkbox" id="email_sup_enabled" style="width:auto;height:16px">轉「設計中」時，一併通知該門市督導</label></div>
@@ -984,7 +984,7 @@ function renderSupEmailTable(){
   // 已設過信箱但目前沒門市掛在他名下的督導也保留顯示
   Object.keys(SUP_EMAILS).forEach(k=>{if(k&&supEmailNames.indexOf(k)<0)supEmailNames.push(k);});
   if(!supEmailNames.length){
-    body.innerHTML='<p class="hint">尚未設定任何門市督導。請到「品項/選項管理 → 門市清單管理」填寫督導，或按該頁的「🔄 從修繕系統同步」。</p>';
+    body.innerHTML='<p class="hint">尚未設定任何門市督導。請到「品項/選項管理 → 門市清單管理」填寫督導，或按該頁的「🔄 從門店資料表同步」。</p>';
     return;
   }
   body.innerHTML=supEmailNames.map((nm,i)=>`
@@ -1170,7 +1170,7 @@ saveOptsBtn.addEventListener("click",async()=>{
 });
 
 /* ====== 門市清單管理（管理頁；卡片以 JS 注入 view-optmgr，門市/管理兩頁共用 app.js）======
-   storeEdit 結構：[[區域,[[門市,督導],...]],...]；督導主檔來自修繕進度系統，可按「從修繕系統同步」拉取 */
+   storeEdit 結構：[[區域,[[門市,督導],...]],...]；門市／督導主檔＝Google 試算表「門店資料表_UG」，可按「從門店資料表同步」拉取 */
 let storeEdit=[];
 function initStoreEdit(){ storeEdit=STORE_GROUPS.map(g=>[g[0],g[1].map(s=>[s,supOfStore(s)])]); }
 function ensureStoreMgrCard(){
@@ -1180,11 +1180,11 @@ function ensureStoreMgrCard(){
   card.className="card"; card.id="storeMgrCard";
   card.innerHTML=`<h2>門市清單管理（含負責督導）</h2>
     <p class="hint">新增／調整門市、所屬區域與<b>負責督導</b>（區域用於申請時自動帶入；督導決定「設計中／已印刷」通知寄給誰）。× 刪除、填入後按「＋ 新增門市」；改完按「儲存門市清單」全門市共用。</p>
-    <div class="pill-note">門市與督導的<b>主檔是「修繕進度系統」</b>：在修繕系統新增門市／改督導後會自動同步過來，也可按下方「🔄 從修繕系統同步」立即拉取（只會新增與更新，不會刪掉這裡已有的門市）。<span id="storeSyncAt"></span></div>
+    <div class="pill-note">門市與督導的<b>主檔是 Google 試算表「門店資料表_UG」</b>（全公司共用，三套系統同一份）：在該表新增門市／改督導後，按下方「🔄 從門店資料表同步」即可拉取，<b>並會同時更新修繕進度系統與門市物料異常回報系統</b>。同步<b>只新增與更新，不會刪掉</b>這裡手動加的門市；主檔沒填督導的門市，這裡手動填的值會保留。<span id="storeSyncAt"></span></div>
     <div id="storeEditBody"></div>
     <div class="btn-row" style="margin-top:6px">
       <button class="btn sec sm" type="button" onclick="storeAddRegion()">＋ 新增區域</button>
-      <button class="btn sec sm" id="syncStoreBtn" type="button" onclick="syncStoresNow()">🔄 從修繕系統同步</button>
+      <button class="btn sec sm" id="syncStoreBtn" type="button" onclick="syncStoresNow()">🔄 從門店資料表同步</button>
       <button class="btn" type="button" onclick="saveStores()">儲存門市清單</button>
     </div>
     <datalist id="supNameList"></datalist>`;
@@ -1266,7 +1266,7 @@ async function saveStores(){
     catch(e){toast("⚠ 儲存失敗："+e.message);}
   }else{toast("門市清單已儲存（本機）");}
 }
-/* 立即從修繕進度系統拉取門市／督導（只新增與更新，不刪除既有門市）*/
+/* 立即從「門店資料表_UG」拉取門市／督導，並連動另外兩套系統（只新增與更新，不刪除既有門市）*/
 async function syncStoresNow(){
   if(!API_URL){toast("尚未設定雲端後端，無法同步");return;}
   const btn=document.getElementById("syncStoreBtn");
@@ -1274,21 +1274,24 @@ async function syncStoresNow(){
   try{
     const r=await api("syncStores");
     await loadStores(); initStoreEdit(); renderStoreEditor(); renderSupEmailTable();
-    const add=(r&&r.added)||[], chg=(r&&r.supervisorChanged)||[], only=(r&&r.onlyInPromo)||[];
-    toast("✅ 同步完成：共 "+((r&&r.stores)||STORES.length)+" 家門市／新增 "+add.length+"／督導更新 "+chg.length);
+    const add=(r&&r.added)||[], chg=(r&&r.supervisorChanged)||[], only=(r&&r.onlyInPromo)||[], peers=(r&&r.peers)||[];
+    const okPeers=peers.filter(p=>p&&p.ok).length;
+    toast("✅ 同步完成：共 "+((r&&r.stores)||STORES.length)+" 家門市／新增 "+add.length+"／督導更新 "+chg.length+(peers.length?"（另 "+okPeers+"/"+peers.length+" 套系統已連動）":""));
     if(add.length)  console.log("同步新增門市：",add);
     if(chg.length)  console.log("督導更新：",chg);
-    if(only.length) console.log("僅存在於文宣系統（未刪除，請自行確認）：",only);
-    if(add.length||only.length){
+    if(only.length) console.log("主檔沒有、文宣系統仍保留（未刪除）：",only);
+    if(peers.length)console.log("連動結果：",peers);
+    if(add.length||only.length||peers.some(p=>p&&!p.ok)){
       showModal('<button class="close-x" onclick="closeModal()">×</button><h2>門市同步結果</h2>'+
-        '<p class="hint">共 '+((r&&r.stores)||STORES.length)+' 家門市。以下為本次差異，請確認新門市的區域是否正確（可直接在門市清單管理調整）。</p>'+
+        '<p class="hint">來源＝Google 試算表「門店資料表_UG」，共 '+((r&&r.stores)||STORES.length)+' 家門市。以下為本次差異，請確認新門市的區域是否正確（可直接在門市清單管理調整）。</p>'+
         (add.length?'<div class="sec-title"><span class="dot"></span>新增門市（'+add.length+'）</div><div style="font-size:13px;line-height:1.9">'+add.map(esc).join('、')+'</div>':'')+
         (chg.length?'<div class="sec-title"><span class="dot"></span>督導更新（'+chg.length+'）</div><div style="font-size:13px;line-height:1.9">'+chg.map(esc).join('、')+'</div>':'')+
-        (only.length?'<div class="sec-title"><span class="dot"></span>修繕系統沒有、文宣系統仍保留（'+only.length+'）</div><div style="font-size:13px;line-height:1.9">'+only.map(esc).join('、')+'</div>':'')+
+        (only.length?'<div class="sec-title"><span class="dot"></span>主檔沒有、文宣系統仍保留（'+only.length+'）</div><div style="font-size:13px;line-height:1.9">'+only.map(esc).join('、')+'</div>':'')+
+        (peers.length?'<div class="sec-title"><span class="dot"></span>另外兩套系統連動</div><div style="font-size:13px;line-height:1.9">'+peers.map(p=>esc(p.system)+'：'+(p.ok?('✅ '+p.stores+' 家門市／新增 '+p.added+'／督導更新 '+p.changed):('⚠ 失敗 '+esc(p.error||'')))).join('<br>')+'</div>':'')+
         '<div class="btn-row" style="margin-top:12px"><button class="btn" onclick="closeModal()">知道了</button></div>');
     }
   }catch(e){ toast("⚠ 同步失敗："+e.message); }
-  finally{ if(btn){btn.disabled=false;btn.textContent="🔄 從修繕系統同步";} }
+  finally{ if(btn){btn.disabled=false;btn.textContent="🔄 從門店資料表同步";} }
 }
 
 /* ====== 申請欄位設定 事件 ====== */
