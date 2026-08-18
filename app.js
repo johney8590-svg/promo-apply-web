@@ -163,10 +163,18 @@ async function loadStores(){
     if(Array.isArray(list)&&list.length){ STORE_GROUPS=list; rebuildStores(); refillStoreSelects(); }
   }catch(e){ console.warn("門市清單載入失敗",e); }
 }
+/* 門市下拉依「區域」分組（optgroup），門市可以直接跳到自己的區域找店 */
+function fillStoreSelect(el,ph){
+  if(!el)return;
+  const groups=STORE_GROUPS.filter(g=>g&&g[1]&&g[1].length);
+  el.innerHTML="<option value=''>"+(ph||"— 請選擇 —")+"</option>"+
+    groups.map(g=>`<optgroup label="${esc(g[0])}（${g[1].length}）">`+
+      g[1].map(s=>`<option>${esc(s)}</option>`).join("")+"</optgroup>").join("");
+}
 /* 重新填入門市下拉（雲端門市清單載入或管理頁存檔後），盡量保留目前選取值 */
 function refillStoreSelects(){
-  if(typeof f_store!=="undefined"){const v=f_store.value;fillSelect(f_store,STORES,"— 選擇門市 —");if(STORES.includes(v))f_store.value=v;}
-  if(typeof q_store!=="undefined"){const v=q_store.value;fillSelect(q_store,STORES,"全部門市");q_store.value=STORES.includes(v)?v:"";}
+  if(typeof f_store!=="undefined"){const v=f_store.value;fillStoreSelect(f_store,"— 選擇門市 —");if(STORES.includes(v))f_store.value=v;}
+  if(typeof q_store!=="undefined"){const v=q_store.value;fillStoreSelect(q_store,"全部門市");q_store.value=STORES.includes(v)?v:"";}
 }
 
 function load(){try{return JSON.parse(localStorage.getItem(LS_KEY))||[]}catch(e){return[]}}
@@ -181,8 +189,8 @@ function fmt$(n){return "$"+Number(n||0).toLocaleString()}
 function parseNum(s){const m=String(s==null?"":s).replace(/,/g,"").match(/\d+(\.\d+)?/);return m?parseFloat(m[0]):NaN;}
 
 /* ====== 初始化下拉 ====== */
-fillSelect(f_store,STORES,"— 選擇門市 —");
-fillSelect(q_store,STORES,"全部門市"); q_store.value="";
+fillStoreSelect(f_store,"— 選擇門市 —");
+fillStoreSelect(q_store,"全部門市"); q_store.value="";
 f_date.value=today();
 
 /* ====== 品項列（repeater）====== */
@@ -1274,7 +1282,7 @@ async function syncStoresNow(){
   try{
     const r=await api("syncStores");
     await loadStores(); initStoreEdit(); renderStoreEditor(); renderSupEmailTable();
-    const add=(r&&r.added)||[], chg=(r&&r.supervisorChanged)||[], only=(r&&r.onlyInPromo)||[], peers=(r&&r.peers)||[];
+    const add=(r&&r.added)||[], chg=(r&&r.supervisorChanged)||[], only=(r&&r.onlyInPromo)||[], peers=(r&&r.peers)||[], mv=(r&&r.regionMoved)||[];
     const okPeers=peers.filter(p=>p&&p.ok).length;
     toast("✅ 同步完成：共 "+((r&&r.stores)||STORES.length)+" 家門市／新增 "+add.length+"／督導更新 "+chg.length+(peers.length?"（另 "+okPeers+"/"+peers.length+" 套系統已連動）":""));
     if(add.length)  console.log("同步新增門市：",add);
@@ -1286,6 +1294,7 @@ async function syncStoresNow(){
         '<p class="hint">來源＝Google 試算表「門店資料表_UG」，共 '+((r&&r.stores)||STORES.length)+' 家門市。以下為本次差異，請確認新門市的區域是否正確（可直接在門市清單管理調整）。</p>'+
         (add.length?'<div class="sec-title"><span class="dot"></span>新增門市（'+add.length+'）</div><div style="font-size:13px;line-height:1.9">'+add.map(esc).join('、')+'</div>':'')+
         (chg.length?'<div class="sec-title"><span class="dot"></span>督導更新（'+chg.length+'）</div><div style="font-size:13px;line-height:1.9">'+chg.map(esc).join('、')+'</div>':'')+
+        (mv.length?'<div class="sec-title"><span class="dot"></span>區域調整（'+mv.length+'）</div><div style="font-size:13px;line-height:1.9">'+mv.map(esc).join('、')+'</div>':'')+
         (only.length?'<div class="sec-title"><span class="dot"></span>主檔沒有、文宣系統仍保留（'+only.length+'）</div><div style="font-size:13px;line-height:1.9">'+only.map(esc).join('、')+'</div>':'')+
         (peers.length?'<div class="sec-title"><span class="dot"></span>另外兩套系統連動</div><div style="font-size:13px;line-height:1.9">'+peers.map(p=>esc(p.system)+'：'+(p.ok?('✅ '+p.stores+' 家門市／新增 '+p.added+'／督導更新 '+p.changed):('⚠ 失敗 '+esc(p.error||'')))).join('<br>')+'</div>':'')+
         '<div class="btn-row" style="margin-top:12px"><button class="btn" onclick="closeModal()">知道了</button></div>');
