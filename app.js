@@ -183,14 +183,13 @@ function refillStoreSelects(){
   if(typeof q_store!=="undefined"){const v=q_store.value;fillStoreSelect(q_store,"全部門市");q_store.value=STORES.includes(v)?v:"";}
 }
 
-/* 選門市時自動帶入門市電話（來源＝門店資料表）。
-   門市自己改過就不覆蓋；只有空白、或還停留在前一家門市帶入的值時才更新。*/
+/* 選門市時直接帶入該門市的電話（來源＝門店資料表）；門市要改再自己改。
+   換門市＝重新帶入新門市的電話（換店等於重新開始填）。*/
 let lastAutoPhone="";
 function autofillStoreInfo(){
   if(typeof f_phone==="undefined")return;
   const p=phoneOfStore(f_store.value);
-  const cur=f_phone.value.trim();
-  if(p&&(cur===""||cur===lastAutoPhone)){ f_phone.value=p; lastAutoPhone=p; }
+  if(p){ f_phone.value=p; lastAutoPhone=p; }
   const hint=document.getElementById("storeInfoHint");
   if(hint){
     const a=addrOfStore(f_store.value);
