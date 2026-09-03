@@ -20,14 +20,19 @@ let STORE_GROUPS=[
 let STORES=[]; let STORE_REGION={};
 /* 門市 → 負責督導（主檔＝修繕進度系統，由後端 storeDir 帶回；管理頁可編輯）*/
 let STORE_SUP={}; let STORE_SYNC_AT="";
+/* 門市 → 門市電話／地址（同步自門店資料表，選門市時自動帶入）*/
+let STORE_PHONE={}, STORE_ADDR={};
 /* 門市名稱正規化：修繕系統帶「店」字尾、文宣系統沒有，比對時一律去掉 */
 function normStoreName(s){return String(s==null?"":s).trim().replace(/店$/,"")}
-function supOfStore(s){
-  if(!s)return"";
-  if(STORE_SUP[s])return STORE_SUP[s];
+function supOfStore(s){ return lookupStore(STORE_SUP,s); }
+function phoneOfStore(s){ return lookupStore(STORE_PHONE,s); }
+function addrOfStore(s){ return lookupStore(STORE_ADDR,s); }
+function lookupStore(map,s){
+  if(!s||!map)return"";
+  if(map[s])return map[s];
   const n=normStoreName(s);
-  const k=Object.keys(STORE_SUP).find(k=>normStoreName(k)===n);
-  return k?STORE_SUP[k]:"";
+  const k=Object.keys(map).find(k=>normStoreName(k)===n);
+  return k?map[k]:"";
 }
 /* 由 STORE_GROUPS 重算扁平門市清單與「門市→區域」對照（雲端門市清單載入後也會呼叫）*/
 function rebuildStores(){
@@ -155,7 +160,8 @@ async function loadStores(){
     const d=await api("storeDir");   // 門市清單＋門市→督導對照
     if(d&&Array.isArray(d.groups)&&d.groups.length){
       STORE_GROUPS=d.groups; STORE_SUP=d.sup||{}; STORE_SYNC_AT=d.syncAt||"";
-      rebuildStores(); refillStoreSelects(); return;
+      STORE_PHONE=d.phone||{}; STORE_ADDR=d.addr||{};
+      rebuildStores(); refillStoreSelects(); autofillStoreInfo(); return;
     }
   }catch(e){ console.warn("門市／督導對照載入失敗，改用舊版門市清單",e); }
   try{
@@ -177,6 +183,31 @@ function refillStoreSelects(){
   if(typeof q_store!=="undefined"){const v=q_store.value;fillStoreSelect(q_store,"全部門市");q_store.value=STORES.includes(v)?v:"";}
 }
 
+/* 選門市時自動帶入門市電話（來源＝門店資料表）。
+   門市自己改過就不覆蓋；只有空白、或還停留在前一家門市帶入的值時才更新。*/
+let lastAutoPhone="";
+function autofillStoreInfo(){
+  if(typeof f_phone==="undefined")return;
+  const p=phoneOfStore(f_store.value);
+  const cur=f_phone.value.trim();
+  if(p&&(cur===""||cur===lastAutoPhone)){ f_phone.value=p; lastAutoPhone=p; }
+  const hint=document.getElementById("storeInfoHint");
+  if(hint){
+    const a=addrOfStore(f_store.value);
+    hint.textContent=f_store.value?((p?("門市電話："+p):"")+(a?("　地址："+a):"")):"";
+  }
+}
+function ensureStoreInfoHint(){
+  if(document.getElementById("storeInfoHint"))return;
+  if(typeof f_phone==="undefined"||!f_phone.parentNode)return;
+  const d=document.createElement("div");
+  d.id="storeInfoHint";
+  d.style.cssText="font-size:11px;color:var(--muted);margin-top:4px";
+  f_phone.parentNode.appendChild(d);
+}
+if(typeof f_store!=="undefined"){
+  f_store.addEventListener("change",()=>{ ensureStoreInfoHint(); autofillStoreInfo(); });
+}
 function load(){try{return JSON.parse(localStorage.getItem(LS_KEY))||[]}catch(e){return[]}}
 function save(){try{localStorage.setItem(LS_KEY,JSON.stringify(cases));return true}catch(e){return false}}
 function getLineCfg(){try{return JSON.parse(localStorage.getItem(LS_LINE))||{}}catch(e){return{}}}
@@ -564,7 +595,7 @@ async function doSubmit(items,signatureDataUrl,remitDataUrl){
 }
 resetBtn.addEventListener("click",resetForm);
 function resetForm(){
-  f_store.value="";f_phone.value="";f_date.value=today();
+  f_store.value="";f_phone.value="";lastAutoPhone="";f_date.value=today();
   itemRows=[blankRow()];renderItems();
 }
 
