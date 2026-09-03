@@ -900,8 +900,8 @@ testLine.addEventListener("click",async ()=>{
   if(API_URL){
     testLine.disabled=true;
     try{
-      const r=await api("pushTest",{line:cfg});
-      if(r.code===200) toast("✅ 已發送測試廣播，請看 LINE（需先把官方帳號加為好友）");
+      const r=await api("pushGroupTest",{line:cfg});
+      if(r.code===200) toast(r.broadcast?"✅ 已廣播測試訊息（未設推播目標）":("✅ 已推播到群組 "+String(r.to).slice(0,10)+"…，請看 LINE 群組"));
       else toast("⚠ 測試失敗（HTTP "+r.code+"）："+String(r.detail||"").slice(0,80));
     }catch(e){toast("⚠ 測試失敗："+e.message);}
     finally{testLine.disabled=false;}
